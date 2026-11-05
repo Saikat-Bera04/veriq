@@ -1,0 +1,80 @@
+/*
+ * Veriq design tokens, taken from the landing page (src/App.tsx, src/index.css,
+ * src/VeriqFooter.css). Values as RGB channels so Tailwind opacity modifiers work.
+ *
+ * From the landing:
+ *   font        "TT Norms Pro" 400 / 600 (public/fonts), Inter for long body copy
+ *   headings    font-medium, letter-spacing -0.04em (hero, h2 large), -0.03em (h2), -0.02em (h3)
+ *   bg          #F5F5F5          (body, sections)
+ *   ink         #0C0C0C          (footer --ink; buttons are pure black)
+ *   muted       #6F6F6C          (footer --body)       faint #9C9C98 (footer --muted)
+ *   aubergine   #2B2644          (dark feature cards)
+ *   mist        #E2E3F1          (footer fog lavender)
+ *   live dot    #2FB36A          (footer status chip)
+ *   tile bg     #F3F2F8          (logo wall tiles, fallback)
+ *   radius      16px rounded-2xl feature cards, 24px rounded-3xl stacked cards, 999px pills
+ *   chip border rgb(12 12 12 / .12)
+ *   buttons     black pill, font-medium, pl-8 pr-2 py-2, white circle with ArrowRight
+ *
+ * Fallbacks (not present on the landing): surface, border, lavender scale, status colours.
+ */
+:root {
+  --vq-bg: 245 245 245;
+  --vq-surface: 255 255 255;
+  --vq-ink: 12 12 12;
+  --vq-black: 0 0 0;
+  --vq-muted: 111 111 108;
+  --vq-faint: 156 156 152;
+  --vq-border: 230 228 238;
+  --vq-mist: 226 227 241;
+
+  --vq-lavender-100: 236 234 248;
+  --vq-lavender-300: 201 198 234;
+  --vq-lavender-500: 156 149 214;
+  --vq-lavender-700: 107 98 181;
+  --vq-aubergine: 43 38 68;
+  --vq-aubergine-deep: 23 20 42;  /* fallback #17142A: darker than any purple on the landing */
+
+  --vq-ok: 47 158 110;
+  --vq-ok-bg: 229 244 236;
+  --vq-warn: 183 121 31;
+  --vq-warn-bg: 251 241 222;
+  --vq-err: 194 65 91;
+  --vq-err-bg: 251 231 236;
+  --vq-live: 47 179 106;
+
+  --vq-tile: 243 242 248;
+  --vq-radius-card: 24px;
+  --vq-radius-inner: 16px;
+  --vq-radius-pill: 999px;
+
+  --vq-shadow-card: 0 1px 2px rgb(12 12 12 / 0.04), 0 8px 24px -12px rgb(43 38 68 / 0.08);
+  --vq-shadow-pop: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+
+  --vq-font-sans: 'TT Norms Pro', Inter, ui-sans-serif, system-ui, sans-serif;
+  --vq-font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+  --vq-font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+  --vq-tracking-hero: -0.04em;
+  --vq-tracking-h2: -0.03em;
+  --vq-tracking-h3: -0.02em;
+}
+
+.vq-focus:focus-visible,
+.vq-root :focus-visible {
+  outline: 2px solid rgb(var(--vq-lavender-500));
+  outline-offset: 2px;
+}
+
+@keyframes vq-shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.vq-skeleton {
+  background: rgb(var(--vq-lavender-100));
+  border-radius: 12px;
+  animation: vq-shimmer 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vq-skeleton { animation: none; }
+}
