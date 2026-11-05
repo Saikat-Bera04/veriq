@@ -1,0 +1,21 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Receipt {
+  sequence    BigInt @id @default(autoincrement())
+  requestId   String @unique(map: "receipts_request_id_key") @map("request_id")
+  method      String
+  status      String
+  blockNumber BigInt? @map("block_number")
+  createdAt   BigInt @map("created_at")
+  receiptJson Json   @db.JsonB @map("receipt_json")
+
+  @@index([createdAt(sort: Desc), sequence(sort: Desc)], map: "receipts_created_at")
+  @@map("receipts")
+}
