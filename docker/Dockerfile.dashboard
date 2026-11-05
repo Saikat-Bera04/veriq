@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+# Landing + dashboard (Vite build, served by `vite preview` with the /engine and /attacker proxies).
+FROM node:20-bookworm-slim
+RUN corepack enable && corepack prepare pnpm@10.19.0 --activate
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY frontend/sdk/package.json frontend/sdk/
+COPY backend/database/package.json backend/database/
+COPY frontend/dashboard/package.json frontend/dashboard/
+RUN pnpm install --frozen-lockfile
+COPY frontend/sdk frontend/sdk
+COPY backend/database backend/database
+COPY frontend/dashboard frontend/dashboard
+RUN pnpm --filter veriq-dashboard build
+EXPOSE 3000
+CMD ["pnpm", "--filter", "veriq-dashboard", "exec", "vite", "preview", "--host", "0.0.0.0", "--port", "3000", "--strictPort"]
