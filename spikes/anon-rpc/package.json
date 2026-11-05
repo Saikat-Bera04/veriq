@@ -1,0 +1,13 @@
+{
+  "name": "veriq-anon-rpc-spike",
+  "private": true,
+  "description": "M0 feasibility page for Anon-RPC (Nox on Sepolia). Not part of the pnpm workspace.",
+  "type": "module",
+  "scripts": {
+    "serve": "node serve.mjs",
+    "build:wasm": "sh ./build-wasm.sh"
+  },
+  "dependencies": {
+    "@anon-rpc/browser-harness": "0.4.0"
+  }
+}

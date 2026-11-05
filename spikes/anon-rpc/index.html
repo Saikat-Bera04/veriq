@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anon-RPC M0 probes</title>
+  <link rel="icon" href="data:,">
+  <!-- The same npm package the dashboard will use (@anon-rpc/browser-harness 0.4.0, pinned in
+       package.json), loaded straight from node_modules: no build step. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@anon-rpc/browser-harness": "./node_modules/@anon-rpc/browser-harness/dist/host.js",
+      "@anon-rpc/harness-core": "./node_modules/@anon-rpc/harness-core/dist/index.js",
+      "@kpstreams/webrtc-client": "./node_modules/@kpstreams/webrtc-client/dist/index.js",
+      "@kpstreams/core": "./node_modules/@kpstreams/core/dist/index.js",
+      "@kpstreams/core/webrtc": "./node_modules/@kpstreams/core/dist/webrtc.js",
+      "@noble/hashes/sha3": "./node_modules/@noble/hashes/esm/sha3.js",
+      "@noble/hashes/crypto": "./node_modules/@noble/hashes/esm/crypto.js"
+    }
+  }
+  </script>
+  <style>
+    :root { --bg: #fff; --ink: #111; --muted: #666; --line: #ddd; --ok: #1a7f37; --warn: #9a6700; --err: #cf222e; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --ink: #e6edf3; --muted: #8b949e; --line: #30363d; --ok: #3fb950; --warn: #d29922; --err: #f85149; } }
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; background: var(--bg); color: var(--ink); max-width: 960px; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    p.note { color: var(--muted); margin: 0 0 12px; }
+    #status { display: inline-block; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-weight: 600; }
+    #status[data-state="connecting"] { color: var(--warn); }
+    #status[data-state="ready"] { color: var(--ok); }
+    #status[data-state="failed"] { color: var(--err); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    pre { white-space: pre-wrap; word-break: break-word; border: 1px solid var(--line); border-radius: 6px; padding: 8px; min-height: 240px; }
+  </style>
+</head>
+<body>
+  <h1>Anon-RPC M0 feasibility probes</h1>
+  <p class="note">Nox on Sepolia. Public, keyless endpoints only. Results go in docs/ANON_RPC_FEASIBILITY.md.</p>
+  <p>Worker: <span id="status" role="status" data-state="idle">idle</span> <span id="status-detail"></span></p>
+
+  <div class="row">
+    <button id="run-all">Run all</button>
+    <button data-probe="m01">M0.1 beacon API</button>
+    <button data-probe="m02">M0.2 public RPC eth_getProof</button>
+    <button data-probe="m03">M0.3 gzip</button>
+    <button data-probe="m04">M0.4 WASM verifier</button>
+  </div>
+
+  <pre id="log" aria-live="polite"></pre>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
