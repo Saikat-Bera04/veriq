@@ -1,0 +1,76 @@
+# Veriq demo. Clean clone:
+#   cp .env.example .env   # fill in VERIQ_PROVIDERS + HELIOS_CONSENSUS_RPC (docs/SERVICES.md)
+#   docker compose --profile demo up --build
+#   open http://localhost:3000/app
+#
+# The engine binds 127.0.0.1:8547 ONLY. All services share one network namespace (owned by
+# `net`), so the dashboard and attacker reach the engine over loopback; only the dashboard is
+# published, on the host's 127.0.0.1:3000. Reach the engine through the dashboard proxy:
+#   curl http://localhost:3000/engine/health
+name: veriq
+
+services:
+  net:
+    image: busybox:1.36
+    command: ["sleep", "infinity"]
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:5432:5432"
+
+  postgres:
+    image: postgres:16-alpine
+    network_mode: service:net
+    environment:
+      POSTGRES_DB: proofroute
+      POSTGRES_USER: veriq
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veriq -d proofroute"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      net: { condition: service_started }
+    restart: unless-stopped
+
+  engine:
+    build: { context: ., dockerfile: docker/Dockerfile.engine }
+    network_mode: service:net
+    env_file:
+      - { path: ../.env, required: false }
+      - { path: .env, required: false }
+    environment:
+      VERIQ_ROOT_SOURCE: ${VERIQ_ROOT_SOURCE:-helios}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+    volumes:
+      - helios:/data
+    depends_on:
+      net: { condition: service_started }
+      postgres: { condition: service_healthy }
+      attacker: { condition: service_healthy, required: false }
+    restart: unless-stopped
+
+  dashboard:
+    build: { context: ., dockerfile: docker/Dockerfile.dashboard }
+    network_mode: service:net
+    depends_on:
+      engine: { condition: service_started }
+    restart: unless-stopped
+
+  # Demo-only attacker; never part of a release. Enabled with --profile demo.
+  attacker:
+    profiles: ["demo"]
+    build: { context: ., dockerfile: docker/Dockerfile.attacker }
+    network_mode: service:net
+    env_file:
+      - { path: ../.env, required: false }
+      - { path: .env, required: false }
+    depends_on:
+      net: { condition: service_started }
+    restart: unless-stopped
+
+volumes:
+  helios: {}
+  postgres: {}

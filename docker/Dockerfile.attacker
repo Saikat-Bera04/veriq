@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+# Demo-only attacker (crates/malicious-rpc). Only built for the compose "demo" profile.
+FROM rust:1.95-bookworm AS build
+WORKDIR /src/backend
+COPY backend/Cargo.toml backend/Cargo.lock ./
+COPY backend/crates ./crates
+COPY backend/tests ./tests
+ENV CARGO_BUILD_JOBS=4
+RUN cargo build --release --locked -p veriq-malicious-rpc --features demo
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/backend/target/release/veriq-malicious-rpc /usr/local/bin/veriq-malicious-rpc
+COPY docker/attacker-entrypoint.sh /usr/local/bin/attacker-entrypoint.sh
+HEALTHCHECK --interval=5s --timeout=2s --start-period=5s --retries=10 \
+  CMD curl -sf http://127.0.0.1:9545/mode >/dev/null
+ENTRYPOINT ["/usr/local/bin/attacker-entrypoint.sh"]

@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/engine",
+      "destination": "https://veriq-cloud.onrender.com/"
+    },
+    {
+      "source": "/engine/:path*",
+      "destination": "https://veriq-cloud.onrender.com/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
