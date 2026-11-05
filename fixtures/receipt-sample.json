@@ -1,0 +1,49 @@
+{
+  "block": {
+    "finalized": true,
+    "hash": "0xcc7404f980bac0b4a4fced30e6b7ee7f1e247cf25040c8f971c77e08d2344f1d",
+    "number": 11999817,
+    "stateRoot": "0xc62deade7ec627ec1367563205538a42eeaf09e6224b7839ca578083b4d0ca66"
+  },
+  "freshness": {
+    "ageSeconds": 0,
+    "observedAt": 1793040516,
+    "pinned": true
+  },
+  "identity": {
+    "method": "veriq_readBalance",
+    "requestBinding": "35ec49cfb370a15bb006a960d63cc47b9c6720bf033642068d9f491598928a1c",
+    "requestId": "1a1798aff99-000000",
+    "resultBinding": "07402601399df9468f4396a94b4b9d0154e111394a1a408bef7274108cc931e0"
+  },
+  "privacy": {
+    "mechanism": null,
+    "transport": "direct"
+  },
+  "routing": {
+    "attempts": [
+      {
+        "elapsedMs": 1181,
+        "outcome": "success",
+        "provider": "alchemy"
+      }
+    ],
+    "comparison": "not-run",
+    "providerLabel": "alchemy",
+    "providersTried": 1
+  },
+  "verification": {
+    "bootstrap": {
+      "checkpoint": "0x5e6d1963c8d096f71ce4bc9da07c75ca169c0821ce549fcebc5397d693d1155a",
+      "checkpointSource": "beaconcha.in",
+      "source": "helios"
+    },
+    "mechanisms": [
+      "account-proof"
+    ],
+    "rootSource": "local-light-client",
+    "status": "verified",
+    "verifierLocation": "local-engine"
+  },
+  "warnings": []
+}

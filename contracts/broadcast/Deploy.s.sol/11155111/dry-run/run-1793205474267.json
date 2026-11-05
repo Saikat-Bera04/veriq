@@ -1,0 +1,77 @@
+{
+  "transactions": [
+    {
+      "hash": null,
+      "transactionType": "CREATE",
+      "contractName": "DemoStorage",
+      "contractAddress": "0x740a1dc2864080552e24e0290f6e68184e8408e2",
+      "function": null,
+      "arguments": null,
+      "transaction": {
+        "from": "0x47c6be3f86e091a31cb3adf176c934467e27dc56",
+        "gas": "0x2a6c1",
+        "value": "0x0",
+        "input": "0x608060405234801561000f575f80fd5b506101748061001d5f395ff3fe608060405234801561000f575f80fd5b506004361061004a575f3560e01c806327e235e31461004e57806361bc221a1461007f5780638bb5d9c314610087578063e30443bc1461009b575b5f80fd5b61006d61005c3660046100df565b60016020525f908152604090205481565b60405190815260200160405180910390f35b61006d5f5481565b6100996100953660046100ff565b5f55565b005b6100996100a9366004610116565b6001600160a01b039091165f90815260016020526040902055565b80356001600160a01b03811681146100da575f80fd5b919050565b5f602082840312156100ef575f80fd5b6100f8826100c4565b9392505050565b5f6020828403121561010f575f80fd5b5035919050565b5f8060408385031215610127575f80fd5b610130836100c4565b94602093909301359350505056fea2646970667358221220503392454d4dfdd8f01b97bc1b3d7008d413729289e484181f3cf7bda15c2d7564736f6c63430008180033",
+        "nonce": "0xf",
+        "chainId": "0xaa36a7"
+      },
+      "additionalContracts": [],
+      "isFixedGasLimit": false
+    },
+    {
+      "hash": null,
+      "transactionType": "CALL",
+      "contractName": "DemoStorage",
+      "contractAddress": "0x740a1dc2864080552e24e0290f6e68184e8408e2",
+      "function": "setCounter(uint256)",
+      "arguments": [
+        "42"
+      ],
+      "transaction": {
+        "from": "0x47c6be3f86e091a31cb3adf176c934467e27dc56",
+        "to": "0x740a1dc2864080552e24e0290f6e68184e8408e2",
+        "gas": "0xeae3",
+        "value": "0x0",
+        "input": "0x8bb5d9c3000000000000000000000000000000000000000000000000000000000000002a",
+        "nonce": "0x10",
+        "chainId": "0xaa36a7"
+      },
+      "additionalContracts": [],
+      "isFixedGasLimit": false
+    },
+    {
+      "hash": null,
+      "transactionType": "CALL",
+      "contractName": "DemoStorage",
+      "contractAddress": "0x740a1dc2864080552e24e0290f6e68184e8408e2",
+      "function": "setBalance(address,uint256)",
+      "arguments": [
+        "0x47c6BE3F86E091a31cb3AdF176c934467E27DC56",
+        "7"
+      ],
+      "transaction": {
+        "from": "0x47c6be3f86e091a31cb3adf176c934467e27dc56",
+        "to": "0x740a1dc2864080552e24e0290f6e68184e8408e2",
+        "gas": "0xee08",
+        "value": "0x0",
+        "input": "0xe30443bc00000000000000000000000047c6be3f86e091a31cb3adf176c934467e27dc560000000000000000000000000000000000000000000000000000000000000007",
+        "nonce": "0x11",
+        "chainId": "0xaa36a7"
+      },
+      "additionalContracts": [],
+      "isFixedGasLimit": false
+    }
+  ],
+  "receipts": [],
+  "libraries": [],
+  "pending": [],
+  "returns": {
+    "deployed": {
+      "internal_type": "contract DemoStorage",
+      "value": "0x740a1DC2864080552E24E0290F6E68184e8408e2"
+    }
+  },
+  "timestamp": 1793205474267,
+  "chain": 11155111,
+  "commit": null
+}
