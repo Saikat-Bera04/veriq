@@ -1,0 +1,11 @@
+{
+  "name": "veriq",
+  "private": true,
+  "packageManager": "pnpm@10.19.0",
+  "scripts": {
+    "dev": "pnpm --filter veriq-dashboard dev",
+    "dev:dashboard": "pnpm --filter veriq-dashboard dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test"
+  }
+}

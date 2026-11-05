@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+**/dist/
+**/build/
+**/out/
+*.tsbuildinfo
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Package-manager caches
+.npm/
+.pnpm-debug.log*
+
+# Vite and frontend caches
+.vite/
+.vite-temp/
+.cache/
+
+# Vercel and deployment state
+.vercel/
+
+# Editors and OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Local tooling and runtime files
+*.pid
+*.pid.lock
+*.seed
+*.local
