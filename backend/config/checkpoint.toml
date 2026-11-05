@@ -1,0 +1,13 @@
+# Pinned Helios bootstrap checkpoint for Sepolia.
+#
+# Filled during 3A; same values recorded in DECISIONS.md.
+# The checkpoint MUST come from a different source than the consensus RPC.
+# Example source values: "beaconcha.in", "checkpoint-sync provider", "team-provided".
+
+network = "sepolia"
+checkpoint = "0x5e6d1963c8d096f71ce4bc9da07c75ca169c0821ce549fcebc5397d693d1155a"
+checkpoint_source = "beaconcha.in"
+# Cross-check execution block used in 3A.
+finalized_block_number = 11996907
+finalized_block_hash = "0xb6116417eb4628dd8682d85fff67ee45e1fa3e72f1569e5a92892f07a29e99d3"
+finalized_state_root = "0x320f1a724626c7f4e3f0aff7bfc4a0a85123a32d0d1325d2dbd62e81c0f23a4b"

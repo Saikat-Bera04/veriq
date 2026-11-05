@@ -1,0 +1,7 @@
+# Sepolia engine configuration (non-secret values only).
+chain_id = 11155111
+name = "sepolia"
+# Execution providers come from VERIQ_PROVIDERS so URLs/keys stay in .env.
+root_source = "helios"
+strict_finalized = true
+engine_addr = "127.0.0.1:8547"

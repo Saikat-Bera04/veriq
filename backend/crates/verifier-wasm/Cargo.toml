@@ -1,0 +1,20 @@
+[package]
+name = "veriq-verifier-wasm"
+description = "Raw WebAssembly ABI for the Veriq proof verifier (M0.4 feasibility)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+alloy-primitives.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+veriq-core = { path = "../core" }
+veriq-verifier = { path = "../verifier" }
+
+# This crate is the FFI boundary: the raw pointer handoff below needs unsafe. The workspace
+# forbids unsafe everywhere else, so this crate deliberately does not inherit workspace lints.
