@@ -1,0 +1,42 @@
+[package]
+name = "veriq-server"
+description = "Veriq local JSON-RPC engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+default-run = "veriq-server"
+
+[dependencies]
+alloy-primitives.workspace = true
+async-trait.workspace = true
+axum = "0.8"
+dotenvy.workspace = true
+veriq-core = { path = "../core" }
+veriq-light-client = { path = "../light-client" }
+veriq-verifier = { path = "../verifier" }
+veriq-router = { path = "../router" }
+tower-http = { version = "0.6", features = ["cors"] }
+toml = "0.8"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["json", "postgres", "runtime-tokio-rustls"] }
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+alloy-rlp.workspace = true
+alloy-trie.workspace = true
+tower = { version = "0.5", features = ["util"] }
+flate2 = "1"
+
+[features]
+default = []
+helios = ["veriq-light-client/helios"]
+# Demo builds only: adds the loopback-only POST /admin/reset-breakers endpoint.
+demo = []
+
+[lints]
+workspace = true
