@@ -1,0 +1,22 @@
+[package]
+name = "veriq-verifier"
+description = "Merkle-Patricia account and storage proof verification"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+alloy-trie.workspace = true
+veriq-core = { path = "../core" }
+
+[dev-dependencies]
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+alloy-trie.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
