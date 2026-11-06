@@ -209,7 +209,31 @@ fn hex_lower(bytes: &[u8]) -> String {
 mod tests {
     use serde_json::json;
 
-    use super::{AttemptOutcome, Comparison, Routing, RoutingAttempt};
+    use super::{AttemptOutcome, Comparison, Privacy, Routing, RoutingAttempt, Transport};
+
+    #[test]
+    fn anon_rpc_transport_round_trips_and_older_transports_still_parse() {
+        let private = Privacy {
+            transport: Transport::AnonRpc,
+            mechanism: Some("nox".to_owned()),
+        };
+        let encoded = serde_json::to_value(&private).expect("privacy serializes");
+        assert_eq!(encoded, json!({"transport": "anon-rpc", "mechanism": "nox"}));
+        let decoded: Privacy = serde_json::from_value(encoded).expect("privacy deserializes");
+        assert_eq!(decoded, private);
+
+        // Receipts written before the variant existed keep parsing.
+        for (text, transport) in [
+            ("direct", Transport::Direct),
+            ("ohttp", Transport::Ohttp),
+            ("anyone-socks", Transport::AnyoneSocks),
+        ] {
+            let old: Privacy =
+                serde_json::from_value(json!({"transport": text, "mechanism": null}))
+                    .expect("older transport parses");
+            assert_eq!(old.transport, transport);
+        }
+    }
 
     #[test]
     fn routing_attempts_remain_backward_compatible_and_use_sdk_casing() {

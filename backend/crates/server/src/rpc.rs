@@ -287,10 +287,11 @@ fn parse_client_proof(params: &Value) -> Result<ClientProof, VeriqError> {
             )?;
             ProofKind::Storage(slot)
         }
-        other => {
-            return Err(VeriqError::invalid_request(format!(
-                "kind must be balance, nonce, code or storage, got {other}"
-            )))
+        // The client's value is not echoed: it could be a URL or a key.
+        _ => {
+            return Err(VeriqError::invalid_request(
+                "kind must be balance, nonce, code or storage",
+            ))
         }
     };
     let block_hash = B256::from_str(text("blockHash")?)

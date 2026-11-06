@@ -1,4 +1,11 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use alloy_primitives::{keccak256, Address, Bytes, B256, U256};
 use alloy_trie::{
@@ -6,8 +13,12 @@ use alloy_trie::{
 };
 use async_trait::async_trait;
 use serde_json::json;
-use veriq_core::{AttemptOutcome, ErrorCode, Mechanism, RootSourceKind, VerificationStatus};
-use veriq_light_client::{fixed::FixedRoot, PinnedRoot};
+use veriq_core::{
+    AttemptOutcome, ErrorCode, Mechanism, RootSourceKind, VerificationStatus, VeriqError,
+};
+use veriq_light_client::{
+    cached::CachedRoot, fixed::FixedRoot, PinnedRoot, RootSource, RootSourceProvider,
+};
 use veriq_server::{
     engine::{Engine, RequestMeta, RECEIPT_WRITE_TIMEOUT},
     provider::{ProofBundle, ProofFetcher, ProviderConfig, StorageProof},
@@ -969,10 +980,124 @@ async fn get_root_names_the_block_a_client_must_fetch_at() {
         json!({"jsonrpc": "2.0", "id": 1, "method": "veriq_getRoot", "params": []}),
     )
     .await;
-    assert_eq!(got["result"]["number"], BLOCK_NUMBER);
-    assert_eq!(got["result"]["hash"], format!("{BLOCK_HASH:#x}"));
-    assert_eq!(got["result"]["stateRoot"], format!("{state_root:#x}"));
-    assert_eq!(got["result"]["verified"], true);
+    let result = &got["result"];
+    assert_eq!(result["number"], BLOCK_NUMBER);
+    assert_eq!(result["hash"], format!("{BLOCK_HASH:#x}"));
+    assert_eq!(result["stateRoot"], format!("{state_root:#x}"));
+    assert_eq!(result["verified"], true);
+
+    // Exactly these five fields, with these JSON types.
+    let mut keys: Vec<&str> = result
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["hash", "number", "rootSource", "stateRoot", "verified"]
+    );
+    assert!(result["number"].is_u64(), "number is a JSON number: {got}");
+    assert!(result["rootSource"].is_string());
+    for field in ["hash", "stateRoot"] {
+        let hex = result[field].as_str().expect("string");
+        assert!(
+            hex.len() == 66 && hex.starts_with("0x"),
+            "{field} is a 0x 32-byte hex string: {hex}"
+        );
+    }
+}
+
+/// A root source whose finalized block moves on every lookup, and that can be made to
+/// fail like a light client that lost sync.
+struct MovingRoot {
+    state_root: B256,
+    calls: AtomicUsize,
+    failing: bool,
+}
+
+#[async_trait]
+impl RootSourceProvider for MovingRoot {
+    async fn current_root(&self) -> Result<PinnedRoot, VeriqError> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst) as u8;
+        if self.failing {
+            return Err(VeriqError::root_unavailable("light client has no finalized block"));
+        }
+        Ok(PinnedRoot::new(
+            BLOCK_NUMBER + u64::from(call),
+            B256::repeat_byte(0x30 + call),
+            self.state_root,
+        ))
+    }
+
+    fn source(&self) -> RootSource {
+        RootSource::LocalLightClient
+    }
+}
+
+fn engine_with_root(root: Arc<dyn RootSourceProvider>, bundle: ProofBundle) -> Engine {
+    Engine::with_fetcher(
+        root,
+        vec![ProviderConfig {
+            label: "mock".to_string(),
+            url: "http://127.0.0.1:1".to_string(),
+            eip1898: true,
+        }],
+        Arc::new(MockProofs {
+            bundle,
+            code: Bytes::new(),
+        }),
+    )
+}
+
+fn get_root_request() -> serde_json::Value {
+    json!({"jsonrpc": "2.0", "id": 1, "method": "veriq_getRoot", "params": []})
+}
+
+#[tokio::test]
+async fn get_root_without_a_root_is_root_unavailable_and_names_no_block() {
+    let (state_root, bundle) = fixture();
+    let engine = engine_with_root(
+        Arc::new(MovingRoot {
+            state_root,
+            calls: AtomicUsize::new(0),
+            failing: true,
+        }),
+        bundle,
+    );
+    let got = dispatch(&engine, get_root_request()).await;
+    assert_eq!(got["error"]["data"]["code"], "ROOT_UNAVAILABLE", "{got}");
+    assert!(got.get("result").is_none(), "no block is made up: {got}");
+}
+
+#[tokio::test]
+async fn two_quick_get_root_calls_return_the_same_block_and_a_proof_for_it_verifies() {
+    let (state_root, bundle) = fixture();
+    let source = Arc::new(MovingRoot {
+        state_root,
+        calls: AtomicUsize::new(0),
+        failing: false,
+    });
+    // The same cache that main.rs puts in front of the light client.
+    let cached = Arc::new(CachedRoot::new(source.clone(), Duration::from_secs(12)));
+    let engine = engine_with_root(cached, bundle.clone());
+
+    let first = dispatch(&engine, get_root_request()).await;
+    let second = dispatch(&engine, get_root_request()).await;
+    assert!(first.get("error").is_none(), "{first}");
+    assert_eq!(first["result"], second["result"]);
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1, "one root lookup");
+
+    // A proof fetched at that block verifies right away: reads use the same pinned root.
+    let mut input = balance_input(proof_json(&bundle));
+    input["blockHash"] = first["result"]["hash"].clone();
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert!(got.get("error").is_none(), "{got}");
+    assert_eq!(
+        got["result"]["receipt"]["block"]["number"],
+        first["result"]["number"]
+    );
 }
 
 #[tokio::test]
@@ -1099,7 +1224,127 @@ async fn client_proof_labels_and_shape_are_validated_before_verification() {
     assert_eq!(got["error"]["code"], -32602);
 
     let mut bad_kind = balance_input(proof_json(&bundle));
-    bad_kind["kind"] = json!("transfer");
+    bad_kind["kind"] = json!("https://rpc.example/KIND_KEY");
     let got = dispatch(&engine, verify_request(bad_kind, None)).await;
     assert_eq!(got["error"]["code"], -32602);
+    assert!(
+        !got.to_string().contains("KIND_KEY"),
+        "kind is never echoed: {got}"
+    );
+}
+
+#[tokio::test]
+async fn client_fetched_nonce_proof_returns_the_proven_nonce() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["kind"] = json!("nonce");
+
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert!(got.get("error").is_none(), "{got}");
+    assert_eq!(got["result"]["value"], format!("{:#x}", U256::from(1)));
+    assert!(got["result"].get("slot").is_none());
+}
+
+#[tokio::test]
+async fn client_fetched_code_is_checked_against_the_proven_code_hash() {
+    let code = Bytes::from_static(&[0x60, 0x80, 0x60, 0x40, 0x52]);
+    let (state_root, bundle) = fixture_with_code(code.clone());
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["kind"] = json!("code");
+    input["code"] = json!(format!("0x{}", alloy_primitives::hex::encode(&code)));
+
+    let got = dispatch(&engine, verify_request(input.clone(), None)).await;
+    assert!(got.get("error").is_none(), "{got}");
+    assert_eq!(got["result"]["value"], "0x6080604052");
+    assert_eq!(
+        got["result"]["receipt"]["verification"]["status"],
+        "verified"
+    );
+
+    // Code that does not hash to the proven codeHash is a forged answer.
+    input["code"] = json!("0x6080");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_PROOF", "{got}");
+}
+
+#[tokio::test]
+async fn a_code_proof_without_code_is_an_invalid_request() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["kind"] = json!("code");
+
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["code"], -32602, "{got}");
+    assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST");
+}
+
+#[tokio::test]
+async fn a_bad_storage_slot_is_refused_before_any_proof_work() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    for slot in [json!("0xnot-hex"), json!(true), serde_json::Value::Null] {
+        let mut input = balance_input(proof_json(&bundle));
+        input["kind"] = json!("storage");
+        input["slot"] = slot.clone();
+        let got = dispatch(&engine, verify_request(input, None)).await;
+        assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{slot}: {got}");
+    }
+    // Refused while parsing: nothing reached the engine, so nothing was stored.
+    assert!(engine.store().list(10).await.expect("list").is_empty());
+}
+
+#[tokio::test]
+async fn compare_on_a_client_proof_warns_that_nothing_was_compared() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let policy = json!({"verification": "required", "privacy": "preferred", "consistency": "compare",
+                        "blockPolicy": "finalized", "timeoutMs": 8000});
+
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), Some(policy)),
+    )
+    .await;
+    assert!(got.get("error").is_none(), "{got}");
+    let receipt = &got["result"]["receipt"];
+    let codes: Vec<&str> = receipt["warnings"]
+        .as_array()
+        .expect("warnings")
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .collect();
+    assert!(codes.contains(&"COMPARE_UNAVAILABLE"), "{codes:?}");
+    assert!(!codes.contains(&"PRIVACY_DOWNGRADED"), "the private path is not a downgrade");
+    assert_eq!(receipt["routing"]["comparison"], "not-run");
+    assert_eq!(
+        receipt["routing"]["attempts"][0]["provider"],
+        "publicnode@anon-rpc:nox"
+    );
+}
+
+#[tokio::test]
+async fn verify_proof_without_a_root_is_root_unavailable_and_recorded() {
+    let (state_root, bundle) = fixture();
+    let engine = engine_with_root(
+        Arc::new(MovingRoot {
+            state_root,
+            calls: AtomicUsize::new(0),
+            failing: true,
+        }),
+        bundle.clone(),
+    );
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert_eq!(got["error"]["data"]["code"], "ROOT_UNAVAILABLE", "{got}");
+    let rows = engine.store().list(10).await.expect("list");
+    assert_eq!(
+        rows[0].error.as_ref().expect("error row").data.code,
+        "ROOT_UNAVAILABLE"
+    );
 }
