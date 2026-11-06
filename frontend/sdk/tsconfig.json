@@ -16,6 +16,8 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
+      "@kirann_out/veriq-client": ["src/index.ts"],
+      "@kirann_out/veriq-client/react": ["src/react/index.ts"],
       "veriq-client": ["src/index.ts"],
       "veriq-client/react": ["src/react/index.ts"]
     }

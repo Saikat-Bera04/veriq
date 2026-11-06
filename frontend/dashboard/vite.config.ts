@@ -28,7 +28,13 @@ const proxy: Record<string, ProxyOptions> = {
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: [
+      { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+      { find: /^(?:@kirann_out\/)?veriq-client\/styles\.css$/, replacement: fileURLToPath(new URL('../sdk/src/react/styles.css', import.meta.url)) },
+      { find: /^(?:@kirann_out\/)?veriq-client\/react$/, replacement: fileURLToPath(new URL('../sdk/src/react/index.ts', import.meta.url)) },
+      { find: /^(?:@kirann_out\/)?veriq-client\/verifier\.wasm$/, replacement: fileURLToPath(new URL('../sdk/wasm/veriq_verifier.wasm', import.meta.url)) },
+      { find: /^(?:@kirann_out\/)?veriq-client$/, replacement: fileURLToPath(new URL('../sdk/src/index.ts', import.meta.url)) },
+    ],
     // Use veriq-client's TypeScript source in the workspace (no SDK build step needed for dev).
     conditions: ['source', ...defaultClientConditions],
   },

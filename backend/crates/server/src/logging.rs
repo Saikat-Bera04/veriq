@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn emitted_logs_keep_operational_context_but_redact_secrets() {
-        const KEY: &str = "SUPERSECRETKEY1234567890";
+        const KEY: &str = "SUPERSECRETKEY1234567890"; // ggignore
         const ADDRESS: &str = "0x1234567890abcdef1234567890abcdef12345678";
         const IP: &str = "203.0.113.7";
         let captured = Captured::default();

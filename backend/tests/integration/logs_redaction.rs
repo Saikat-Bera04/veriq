@@ -33,7 +33,7 @@ async fn logs_contain_no_address_url_or_key() {
         .with_writer(move || writer.clone())
         .init();
 
-    const KEY: &str = "SUPERSECRETKEY1234567890";
+    const KEY: &str = "SUPERSECRETKEY1234567890"; // ggignore
     let (root, address, proof, _) = eoa_fixture();
     let down =
         MockProvider::start_with_path(Behaviour::Outage, &format!("v3/{KEY}?apikey={KEY}")).await;

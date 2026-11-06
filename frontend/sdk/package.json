@@ -1,6 +1,9 @@
 {
-  "name": "veriq-client",
+  "name": "@kirann_out/veriq-client",
   "version": "0.1.2",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Verified Ethereum reads, with a receipt for every answer.",
   "license": "MIT",
   "type": "module",

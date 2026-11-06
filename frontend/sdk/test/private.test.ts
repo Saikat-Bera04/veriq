@@ -26,7 +26,7 @@ const ROOT = { number: 7412903, hash: `0x${'aa'.repeat(32)}`, stateRoot: `0x${'b
 /** The next finalized block, for the moved-root tests. */
 const ROOT2 = { ...ROOT, number: ROOT.number + 32, hash: `0x${'a2'.repeat(32)}` }
 const PROOF = { accountProof: ['0x01'], balance: '0x1', nonce: '0x1', codeHash: `0x${'cc'.repeat(32)}`, storageHash: `0x${'dd'.repeat(32)}`, storageProof: [] }
-const KEY = 'SuperSecretApiKey123456'
+const KEY = 'SuperSecretApiKey123456' // ggignore
 const ENGINE_URL = 'http://127.0.0.1:8547'
 const A: PrivateProvider = { label: 'alpha', url: `https://alpha.example/v3/${KEY}` }
 const B: PrivateProvider = { label: 'beta', url: 'https://beta.example/rpc' }

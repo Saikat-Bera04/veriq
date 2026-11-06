@@ -6,6 +6,9 @@ const src = (p: string) => fileURLToPath(new URL(`./src/${p}`, import.meta.url))
 export default defineConfig({
   resolve: {
     alias: [
+      { find: /^@kirann_out\/veriq-client\/styles\.css$/, replacement: src('react/styles.css') },
+      { find: /^@kirann_out\/veriq-client\/react$/, replacement: src('react/index.ts') },
+      { find: /^@kirann_out\/veriq-client$/, replacement: src('index.ts') },
       { find: /^veriq-client\/styles\.css$/, replacement: src('react/styles.css') },
       { find: /^veriq-client\/react$/, replacement: src('react/index.ts') },
       { find: /^veriq-client$/, replacement: src('index.ts') },

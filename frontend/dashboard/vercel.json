@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter veriq-client build && pnpm --filter veriq-dashboard build",
+  "buildCommand": "pnpm --filter @kirann_out/veriq-client build && pnpm --filter veriq-dashboard build",
   "outputDirectory": "dist",
   "framework": "vite",
   "headers": [

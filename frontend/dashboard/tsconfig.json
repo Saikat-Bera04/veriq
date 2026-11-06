@@ -15,7 +15,13 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] },
+    "paths": {
+      "@/*": ["src/*"],
+      "@kirann_out/veriq-client": ["../sdk/src/index.ts"],
+      "@kirann_out/veriq-client/react": ["../sdk/src/react/index.ts"],
+      "veriq-client": ["../sdk/src/index.ts"],
+      "veriq-client/react": ["../sdk/src/react/index.ts"]
+    },
 
     /* Linting */
     "strict": true,
