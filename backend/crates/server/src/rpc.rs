@@ -4,7 +4,7 @@ use alloy_primitives::{Address, Bytes, B256, U256};
 use serde_json::{json, Value};
 use veriq_core::{Policy, VeriqError};
 
-use crate::engine::{ClientProof, Engine, ProofKind, RequestMeta};
+use crate::engine::{BrowserRoot, ClientProof, Engine, ProofKind, RequestMeta};
 use crate::store::valid_receipt_id;
 
 pub const READ_BALANCE: &str = "veriq_readBalance";
@@ -259,7 +259,7 @@ pub fn capabilities() -> Value {
 }
 
 /// `veriq_verifyProof` params[0]: `{ kind, address, slot?, blockHash, proof, code?, provider,
-/// network, elapsedMs? }`.
+/// network, elapsedMs?, browserRoot? }`.
 fn parse_client_proof(params: &Value) -> Result<ClientProof, VeriqError> {
     let input = params
         .as_array()
@@ -322,7 +322,28 @@ fn parse_client_proof(params: &Value) -> Result<ClientProof, VeriqError> {
         provider: text("provider")?.to_owned(),
         network: text("network")?.to_owned(),
         elapsed_ms: input.get("elapsedMs").and_then(Value::as_u64).unwrap_or(0),
+        browser_root: parse_browser_root(input.get("browserRoot"))?,
     })
+}
+
+/// Optional `browserRoot: { number, hash, stateRoot }` (S4.2). `null` or absent: none.
+fn parse_browser_root(value: Option<&Value>) -> Result<Option<BrowserRoot>, VeriqError> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let bad = || VeriqError::invalid_request("browserRoot must be { number, hash, stateRoot }");
+    let root = value.as_object().ok_or_else(bad)?;
+    let word = |key: &str| {
+        root.get(key)
+            .and_then(Value::as_str)
+            .and_then(|text| B256::from_str(text).ok())
+            .ok_or_else(bad)
+    };
+    Ok(Some(BrowserRoot {
+        number: root.get("number").and_then(Value::as_u64).ok_or_else(bad)?,
+        hash: word("hash")?,
+        state_root: word("stateRoot")?,
+    }))
 }
 
 fn success_response(id: &Value, result: Value, receipt: Option<veriq_core::Receipt>) -> Value {

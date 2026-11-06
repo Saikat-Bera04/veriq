@@ -573,29 +573,45 @@ shows the private probe result.
 
 ### S4.1 — Helios in-browser build, traffic through Nox
 
-- [ ] Build/consume the Helios WASM/browser artifact (confirm in M0.1 whether beacon traffic through
-      Nox works; if not, document the split).
-- [ ] Route Helios consensus and execution traffic through the Anon-RPC fetch where supported.
-- [ ] Package the artifact outside the main bundle; lazy-load on `/app` after the anon worker is ready.
-- [ ] Persist Helios checkpoint/data in IndexedDB/localStorage; bootstrap from the pinned checkpoint or
-      the engine's `veriq_getRoot` as a fallback.
-- [ ] Status: `syncing`, `synced`, `failed`, with finalized number/hash, exposed to the badge.
-- [ ] Test: with a recorded light-client update fixture, Helios reaches a finalized root; a bad
-      update is rejected.
-- [ ] Measure sync time in the browser; record it.
+- [x] Consume the Helios browser artifact: `@a16z/helios@0.12.0`, the npm build of the exact commit
+      the engine pins (`2af9b41…`). Pinned in `frontend/dashboard/package.json`.
+- [x] Route Helios consensus and execution traffic through Nox: Helios gets
+      `https://consensus.helios.invalid` / `https://execution.helios.invalid`; `createHeliosFetch`
+      (`src/dashboard/lib/lightclient.ts`) sends only those through `AnonRpcWorker.fetch`. **No
+      split:** M0.1 failed only because Nimbus serves a non-public certificate; Lodestar Sepolia
+      passes through Nox (re-run 2026-11-06, `docs/ANON_RPC_FEASIBILITY.md#s4--helios-in-the-browser-over-nox`).
+- [x] Outside the main bundle: dynamic `import('@a16z/helios')` after the Nox worker is ready
+      (own 4.45 MB chunk, 1.7 MB gzip); started from `Shell` next to `startAnon()`.
+- [x] Persistence: the checkpoint Helios reached (`helios_getCurrentCheckpoint`) is saved in
+      localStorage (`veriq.browserHelios.v1`) and reused on a reload within 5 min. **Bootstrap
+      source changed:** Lodestar serves bootstraps only for the *current* finalized checkpoint, so
+      the pinned checkpoint cannot be used; each start reads it from checkpointz (ethpandaops)
+      through Nox and needs every healthy upstream to agree. `veriq_getRoot` cannot bootstrap
+      Helios (it is an execution block, not a beacon root), so it is the cross-check instead.
+- [x] Status `off | idle | waiting | syncing | synced | failed` with finalized number/hash, sync
+      time and checkpoint, shown on the Light Client page (`BrowserLightClientCard`).
+- [x] Fixture test: `fixtures/browser-helios/sepolia-12076786.json.gz` (recorded through Nox)
+      replayed into the real wasm (`helios-fixture.test.ts`): reaches the recorded root; a forged
+      sync-committee signature and a wrong-slot bootstrap are rejected.
+- [x] Sync time in the browser: 8.4 s after Nox ready (3.7 s), 2026-11-06, Headless Chrome 156.
 
 ### S4.2 — The root comes from browser Helios instead of the engine
 
-- [ ] `veriq_getRoot` remains the fallback/cross-check; the private reader asks the browser Helios for
-      the root when it is synced.
-- [ ] If browser Helios root and engine root disagree → fail closed with a clear error, do not pick
-      one.
-- [ ] Receipt `rootSource` stays `local-light-client`; add a field or warning that the light client ran
-      in the browser (do not change the enum if avoidable).
-- [ ] Test: browser root equal → read verifies; root different → typed mismatch, no value.
+- [x] `createPrivateReader(..., { lightClient })` (SDK): when browser Helios is synced, its finalized
+      block is the one fetched; `veriq_getRoot` is the cross-check, and the fallback while it is
+      not synced/failed/stale (>30 min).
+- [x] Same number, different hash or state root → `RootMismatchError` (`ROOT_MISMATCH`, -32017), no
+      provider asked. Different numbers (one light client a few seconds behind at an epoch
+      boundary) → wait, bounded by `alignTimeoutMs` (30 s), then `ROOT_UNAVAILABLE`. Never picks.
+- [x] The engine checks again: `veriq_verifyProof` accepts `browserRoot` and refuses with
+      `ROOT_MISMATCH` unless it is exactly its pinned block. `rootSource` stays the engine's;
+      the receipt gets a `BROWSER_LIGHT_CLIENT` warning (additive, no enum change).
+- [x] Tests: engine (`read_path.rs`, 5 new), SDK (`private.test.ts`, 9 new), dashboard
+      (`lightclient.test.ts`, 14).
 
-**S4 done when:** the root is produced in the browser and synced over Nox; the engine is not the root
-source in that mode.
+**S4 status (2026-11-06):** the root is produced in the browser and synced over Nox, and the
+engine's root must match it. The engine still verifies the proof against its own root (S5 moves
+verification into the browser).
 
 ## S5 — Verifier in the browser
 

@@ -76,7 +76,7 @@ describe('receipt.rs <-> schema.ts', () => {
     const numbers = Object.fromEntries([...rs.matchAll(/Self::(\w+) => (-\d+),/g)].map((m) => [m[1], Number(m[2])]))
     const names = Object.fromEntries([...rs.matchAll(/Self::(\w+) => "([A-Z_]+)",/g)].map((m) => [m[1], m[2]]))
     const fromRust = Object.fromEntries(Object.keys(numbers).map((variant) => [names[variant], numbers[variant]]))
-    expect(Object.keys(fromRust)).toHaveLength(9)
+    expect(Object.keys(fromRust)).toHaveLength(10)
     expect(fromRust).toEqual(ERROR_CODES)
   })
 })

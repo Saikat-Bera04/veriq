@@ -14,13 +14,15 @@
  * const { value, receipt } = await reader.readBalance({ address })
  * receipt.privacy.transport // 'anon-rpc'
  */
-import type { RootInfo, VeriqClient } from './client'
+import type { BrowserRoot, RootInfo, VeriqClient } from './client'
 import { assertAddress, assertSlot } from './client'
 import {
   ERROR_CODES,
   AllProvidersFailedError,
   InvalidProofError,
   InvalidRequestError,
+  RootMismatchError,
+  RootUnavailableError,
   VeriqError,
 } from './errors'
 import type { Hex, Policy, VerifiedResult } from './types'
@@ -44,6 +46,25 @@ export interface PrivateReaderOptions {
   timeoutMs?: number
   /** Tests only: allow `http://` to localhost / 127.0.0.1 / [::1]. Every other URL must be HTTPS. */
   allowInsecureLoopback?: boolean
+  /**
+   * A light client in the browser (S4.2, e.g. Helios synced over Nox). When it is synced, the
+   * read uses its finalized block and the engine's `veriq_getRoot` must be the very same block:
+   * a different hash or state root for that number is a ROOT_MISMATCH and nothing is read.
+   * While it is not synced (`null`), the engine's root is used alone and the receipt has no
+   * BROWSER_LIGHT_CLIENT marker.
+   */
+  lightClient?: BrowserLightClient
+  /**
+   * How long the two light clients may disagree about *which* block is finalized (one is a
+   * few seconds behind at an epoch boundary) before the read gives up. Default 30 s.
+   */
+  alignTimeoutMs?: number
+}
+
+/** A light client running in the browser that reports its latest finalized block. */
+export interface BrowserLightClient {
+  /** The finalized block, or `null` while not synced (or stale, or failed). */
+  finalized(): Promise<BrowserRoot | null>
 }
 
 export interface PrivateReader {
@@ -62,6 +83,9 @@ const MAX_ROOT_REFRESHES = 1
 /** Upstream error text is cut to this length after secrets are removed. */
 const MAX_DETAIL = 160
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]'])
+/** While the two light clients are at different finalized blocks, ask again this often. */
+const ALIGN_POLL_MS = 1_500
+const HASH_RE = /^0x[0-9a-fA-F]{64}$/
 
 /** JSON-RPC or transport error from the provider. The message is already sanitised. */
 class UpstreamError extends Error {
@@ -148,6 +172,55 @@ export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOpti
   const timeoutMs = opts.timeoutMs ?? 30_000
   const providers = opts.providers.map((p) => ({ ...p }))
   const secrets = secretsOf(providers)
+  const alignTimeoutMs = opts.alignTimeoutMs ?? 30_000
+
+  /** The light client's answer; an error or a malformed block counts as "not synced". */
+  async function browserFinalized(lightClient: BrowserLightClient): Promise<BrowserRoot | null> {
+    let root: BrowserRoot | null
+    try {
+      root = await lightClient.finalized()
+    } catch {
+      return null
+    }
+    if (!root) return null
+    if (!Number.isSafeInteger(root.number) || !HASH_RE.test(root.hash) || !HASH_RE.test(root.stateRoot)) return null
+    return { number: root.number, hash: root.hash, stateRoot: root.stateRoot }
+  }
+
+  /**
+   * The block to fetch at. With a synced browser light client, both roots must name the same
+   * block; if they are at different heights, wait (bounded) for the slower one to catch up.
+   */
+  async function pinRoot(): Promise<{ root: RootInfo; browser?: BrowserRoot }> {
+    const lightClient = opts.lightClient
+    if (!lightClient) return { root: await client.getRoot() }
+    const deadline = Date.now() + alignTimeoutMs
+    for (;;) {
+      const [root, browser] = await Promise.all([client.getRoot(), browserFinalized(lightClient)])
+      if (!browser) return { root }
+      if (browser.number === root.number) {
+        const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+        if (!same(browser.hash, root.hash) || !same(browser.stateRoot, root.stateRoot)) {
+          throw new RootMismatchError(
+            ERROR_CODES.ROOT_MISMATCH,
+            `finalized block #${root.number}: the browser light client has ${browser.hash} (state root ` +
+              `${browser.stateRoot}), the engine has ${root.hash} (state root ${root.stateRoot}); nothing was read`,
+          )
+        }
+        return { root, browser }
+      }
+      if (Date.now() >= deadline) {
+        throw new RootUnavailableError(
+          ERROR_CODES.ROOT_UNAVAILABLE,
+          `the browser light client is at finalized block #${browser.number} and the engine at #${root.number}; ` +
+            `they did not agree within ${Math.round(alignTimeoutMs / 1000)} s`,
+          { hint: 'One light client is not following finality. Check the engine /health and the browser light client status.' },
+        )
+      }
+      await new Promise((resolve) => setTimeout(resolve, ALIGN_POLL_MS))
+    }
+  }
+
   /** Providers that rejected the EIP-1898 `{ blockHash }` form (-32602): ask them by number. */
   const numberOnly = new Set<string>()
   let nextId = 1
@@ -222,7 +295,7 @@ export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOpti
     for (const provider of providers) {
       // Per provider: a moving finalized block may make it fetch again, up to the budget.
       for (let refreshes = 0; ; refreshes++) {
-        const root = await client.getRoot() // engine/root errors stop the read
+        const { root, browser } = await pinRoot() // engine/root errors stop the read
         const started = Date.now()
         let proof: unknown
         let code: unknown
@@ -245,6 +318,7 @@ export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOpti
               provider: provider.label,
               network: opts.network,
               elapsedMs: Date.now() - started,
+              ...(browser ? { browserRoot: browser } : {}),
             },
             policy,
           )

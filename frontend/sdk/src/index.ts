@@ -12,9 +12,9 @@
  * const { value, verified } = await veriq.readBalance({ address: '0x…' })
  */
 export { createVeriq, DEFAULT_ENGINE_URL, assertAddress, assertSlot, assertPolicy, attemptsFromReceipt } from './client'
-export type { VeriqClient, VeriqOptions, ReadOptions, RawResult, RootInfo, ClientProofInput } from './client'
+export type { VeriqClient, VeriqOptions, ReadOptions, RawResult, RootInfo, ClientProofInput, BrowserRoot } from './client'
 export { createPrivateReader } from './private'
-export type { PrivateReader, PrivateReaderOptions, PrivateProvider } from './private'
+export type { PrivateReader, PrivateReaderOptions, PrivateProvider, BrowserLightClient } from './private'
 export { createTransport } from './transport'
 export type { VeriqTransport, VeriqTransportOptions } from './transport'
 export * from './errors'

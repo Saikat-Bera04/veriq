@@ -10,6 +10,9 @@ pub enum ErrorCode {
     PolicyUnsatisfiable,
     ProviderTimeout,
     AllProvidersFailed,
+    /// Two trusted root sources (e.g. the engine's Helios and a light client in the browser)
+    /// report different roots for the same finalized block. Fails closed; neither is picked.
+    RootMismatch,
     InvalidRequest,
     InternalError,
 }
@@ -24,6 +27,7 @@ impl ErrorCode {
             Self::PolicyUnsatisfiable => -32014,
             Self::ProviderTimeout => -32015,
             Self::AllProvidersFailed => -32016,
+            Self::RootMismatch => -32017,
             Self::InvalidRequest => -32602,
             Self::InternalError => -32603,
         }
@@ -38,6 +42,7 @@ impl ErrorCode {
             Self::PolicyUnsatisfiable => "POLICY_UNSATISFIABLE",
             Self::ProviderTimeout => "PROVIDER_TIMEOUT",
             Self::AllProvidersFailed => "ALL_PROVIDERS_FAILED",
+            Self::RootMismatch => "ROOT_MISMATCH",
             Self::InvalidRequest => "INVALID_REQUEST",
             Self::InternalError => "INTERNAL_ERROR",
         }
@@ -91,6 +96,10 @@ impl VeriqError {
 
     pub fn all_providers_failed(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::AllProvidersFailed, message)
+    }
+
+    pub fn root_mismatch(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::RootMismatch, message)
     }
 
     pub fn invalid_request(message: impl Into<String>) -> Self {

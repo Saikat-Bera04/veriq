@@ -8,6 +8,12 @@ interface ImportMetaEnv {
   readonly VITE_ANON?: string
   /** `label=https://url,label2=https://url2` for private reads. Default: PublicNode Sepolia. */
   readonly VITE_ANON_PROVIDERS?: string
+  /** `off` skips Helios in the browser; reads then use the engine's root alone. Default: on (needs Anon-RPC). */
+  readonly VITE_BROWSER_LIGHT_CLIENT?: string
+  /** Beacon API for browser Helios, reached through Nox. Default: Lodestar Sepolia. */
+  readonly VITE_HELIOS_CONSENSUS_RPC?: string
+  /** checkpointz instance for the bootstrap checkpoint (another operator than the beacon API). */
+  readonly VITE_HELIOS_CHECKPOINT_SOURCE?: string
 }
 
 interface ImportMeta {

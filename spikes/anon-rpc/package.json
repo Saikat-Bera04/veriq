@@ -8,6 +8,7 @@
     "build:wasm": "sh ./build-wasm.sh"
   },
   "dependencies": {
+    "@a16z/helios": "0.12.0",
     "@anon-rpc/browser-harness": "0.4.0"
   }
 }

@@ -137,6 +137,18 @@ export interface ClientProofInput {
   /** Anonymizing network, e.g. `nox`. */
   network: string
   elapsedMs?: number
+  /**
+   * The same finalized block, as a light client in the browser reported it (S4.2). The engine
+   * refuses the proof with ROOT_MISMATCH unless it is exactly its own pinned block.
+   */
+  browserRoot?: BrowserRoot
+}
+
+/** A finalized block from a light client running in the browser (e.g. Helios over Nox). */
+export interface BrowserRoot {
+  number: number
+  hash: string
+  stateRoot: string
 }
 
 /** `requestWithReceipt` result: the JSON-RPC `result` and the validated receipt, if any. */

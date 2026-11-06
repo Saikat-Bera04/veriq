@@ -4,12 +4,13 @@ import {
   InvalidProofError,
   InvalidRequestError,
   PolicyUnsatisfiableError,
+  RootMismatchError,
   RootUnavailableError,
   VeriqSchemaError,
   createPrivateReader,
   createVeriq,
 } from 'veriq-client'
-import type { PrivateProvider } from 'veriq-client'
+import type { BrowserLightClient, BrowserRoot, PrivateProvider } from 'veriq-client'
 import { ADDRESS, type Handler, mockEngine, receiptFixture } from './helpers'
 
 const ROOT = { number: 7412903, hash: `0x${'aa'.repeat(32)}`, stateRoot: `0x${'bb'.repeat(32)}`, rootSource: 'local-light-client', verified: true }
@@ -346,5 +347,108 @@ describe('createPrivateReader', () => {
     }
     expect(message).toMatch(/label/)
     expect(message).not.toContain(KEY)
+  })
+})
+
+describe('S4.2: root from a light client in the browser', () => {
+  const browserOf = (root: typeof ROOT): BrowserRoot => ({ number: root.number, hash: root.hash, stateRoot: root.stateRoot })
+  /** A browser light client that answers `roots` in turn (the last one repeats). */
+  function lightClient(...roots: (BrowserRoot | null | 'throw')[]) {
+    let calls = 0
+    const lc: BrowserLightClient = {
+      finalized: async () => {
+        const r = roots[Math.min(calls++, roots.length - 1)]
+        if (r === 'throw') throw new Error('helios: not synced')
+        return r ?? null
+      },
+    }
+    return { lc, calls: () => calls }
+  }
+  function withLightClient(e: ReturnType<typeof mockEngine>, p: ReturnType<typeof anonFetch>, lc: BrowserLightClient, alignTimeoutMs?: number) {
+    const client = createVeriq({ url: ENGINE_URL, fetch: e.fetch })
+    return createPrivateReader(client, { fetch: p.fetch, network: 'nox', providers: [A, B], lightClient: lc, ...(alignTimeoutMs ? { alignTimeoutMs } : {}) })
+  }
+
+  it('equal roots: the read is fetched at that block and the browser root is sent to the engine', async () => {
+    const e = engine()
+    const p = anonFetch()
+    const r = await withLightClient(e, p, lightClient(browserOf(ROOT)).lc).readBalance({ address: ADDRESS })
+    expect(r.value).toBe(2_000_000_000_000_000_000n)
+    expect(verifyInputs(e)[0]).toMatchObject({ blockHash: ROOT.hash, browserRoot: browserOf(ROOT) })
+    expect(p.calls[0]?.params.at(-1)).toEqual({ blockHash: ROOT.hash })
+  })
+
+  it('hash case does not matter', async () => {
+    const e = engine()
+    const upper = { ...browserOf(ROOT), hash: ROOT.hash.toUpperCase().replace('0X', '0x') }
+    await expect(withLightClient(e, anonFetch(), lightClient(upper).lc).readBalance({ address: ADDRESS })).resolves.toBeDefined()
+  })
+
+  it('same block, different state root: ROOT_MISMATCH, no provider asked, nothing verified', async () => {
+    const e = engine()
+    const p = anonFetch()
+    const lying = { ...browserOf(ROOT), stateRoot: `0x${'ee'.repeat(32)}` }
+    const err = await withLightClient(e, p, lightClient(lying).lc).readBalance({ address: ADDRESS }).catch((x: unknown) => x)
+    expect(err).toBeInstanceOf(RootMismatchError)
+    expect((err as RootMismatchError).codeName).toBe('ROOT_MISMATCH')
+    expect((err as Error).message).toContain(`#${ROOT.number}`)
+    expect(p.calls).toHaveLength(0)
+    expect(verifyCalls(e)).toHaveLength(0)
+  })
+
+  it('same block, different hash: ROOT_MISMATCH', async () => {
+    const e = engine()
+    const other = { ...browserOf(ROOT), hash: `0x${'ab'.repeat(32)}` }
+    await expect(withLightClient(e, anonFetch(), lightClient(other).lc).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(RootMismatchError)
+  })
+
+  it('the browser is one epoch ahead: wait for the engine to reach the same block, then read', async () => {
+    vi.useFakeTimers()
+    const e = engine(undefined, [ROOT, ROOT, ROOT2])
+    const p = anonFetch()
+    const pending = withLightClient(e, p, lightClient(browserOf(ROOT2)).lc).readBalance({ address: ADDRESS })
+    await vi.advanceTimersByTimeAsync(5_000)
+    await expect(pending).resolves.toBeDefined()
+    expect(getRootCalls(e)).toHaveLength(3)
+    expect(verifyInputs(e)[0]).toMatchObject({ blockHash: ROOT2.hash, browserRoot: browserOf(ROOT2) })
+  })
+
+  it('the two never meet: a bounded ROOT_UNAVAILABLE, no provider asked', async () => {
+    vi.useFakeTimers()
+    const e = engine()
+    const p = anonFetch()
+    const pending = withLightClient(e, p, lightClient(browserOf(ROOT2)).lc, 6_000).readBalance({ address: ADDRESS }).catch((x: unknown) => x)
+    await vi.advanceTimersByTimeAsync(10_000)
+    const err = await pending
+    expect(err).toBeInstanceOf(RootUnavailableError)
+    expect((err as Error).message).toContain('did not agree')
+    expect(getRootCalls(e).length).toBeLessThanOrEqual(6)
+    expect(p.calls).toHaveLength(0)
+  })
+
+  it('not synced (null), failed (throws) or malformed: the engine root is used alone, no browserRoot sent', async () => {
+    for (const answer of [null, 'throw' as const, { number: 1.5, hash: '0x1', stateRoot: '0x2' }]) {
+      const e = engine()
+      await withLightClient(e, anonFetch(), lightClient(answer as BrowserRoot | null | 'throw').lc).readBalance({ address: ADDRESS })
+      expect(verifyInputs(e)[0]).not.toHaveProperty('browserRoot')
+      expect(verifyInputs(e)[0]).toMatchObject({ blockHash: ROOT.hash })
+    }
+  })
+
+  it('an engine ROOT_MISMATCH (defence in depth) is not retried on another provider', async () => {
+    const e = engine(() => ({ error: { code: -32017, message: 'roots differ', data: { code: 'ROOT_MISMATCH' } } }))
+    const p = anonFetch()
+    await expect(withLightClient(e, p, lightClient(browserOf(ROOT)).lc).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(RootMismatchError)
+    expect(verifyCalls(e)).toHaveLength(1)
+    expect(new Set(p.calls.map((c) => c.url))).toEqual(new Set([A.url]))
+  })
+
+  it('a moved root re-pins both light clients before fetching again', async () => {
+    const e = engine((input, n) => (n === 0 ? rootMoved : ok(input)), [ROOT, ROOT2])
+    const lc = lightClient(browserOf(ROOT), browserOf(ROOT2))
+    const r = await withLightClient(e, anonFetch(), lc.lc).readBalance({ address: ADDRESS })
+    expect(r.value).toBe(2_000_000_000_000_000_000n)
+    expect(lc.calls()).toBe(2)
+    expect(verifyInputs(e)[1]).toMatchObject({ blockHash: ROOT2.hash, browserRoot: browserOf(ROOT2) })
   })
 })

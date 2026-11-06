@@ -1356,3 +1356,92 @@ async fn verify_proof_without_a_root_is_root_unavailable_and_recorded() {
         "ROOT_UNAVAILABLE"
     );
 }
+
+// ---- S4.2: the root also came from a light client in the browser ------------------------
+
+fn browser_root(number: u64, hash: B256, state_root: B256) -> serde_json::Value {
+    json!({"number": number, "hash": format!("{hash:#x}"), "stateRoot": format!("{state_root:#x}")})
+}
+
+#[tokio::test]
+async fn a_matching_browser_root_verifies_and_the_receipt_says_so() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = browser_root(BLOCK_NUMBER, BLOCK_HASH, state_root);
+
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert!(got.get("error").is_none(), "{got}");
+    let receipt = &got["result"]["receipt"];
+    assert_eq!(receipt["verification"]["status"], "verified");
+    // rootSource stays the engine's own source (fixture here, local-light-client live); the
+    // browser check is an additive warning, not a new enum value.
+    assert_eq!(receipt["verification"]["rootSource"], "fixture");
+    let warnings = receipt["warnings"].as_array().expect("warnings");
+    let marker = warnings
+        .iter()
+        .find(|w| w["code"] == "BROWSER_LIGHT_CLIENT")
+        .unwrap_or_else(|| panic!("no browser marker: {receipt}"));
+    assert!(marker["message"].as_str().expect("message").contains("nox"));
+}
+
+#[tokio::test]
+async fn without_a_browser_root_there_is_no_browser_marker() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert!(got.get("error").is_none(), "{got}");
+    assert!(!got["result"]["receipt"]["warnings"]
+        .as_array()
+        .expect("warnings")
+        .iter()
+        .any(|w| w["code"] == "BROWSER_LIGHT_CLIENT"));
+}
+
+#[tokio::test]
+async fn a_browser_root_with_another_state_root_is_a_typed_mismatch_and_recorded() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = browser_root(BLOCK_NUMBER, BLOCK_HASH, B256::repeat_byte(0x44));
+
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["code"], -32017, "{got}");
+    assert_eq!(got["error"]["data"]["code"], "ROOT_MISMATCH");
+    assert!(got.get("result").is_none(), "no value on a mismatch: {got}");
+    let rows = engine.store().list(10).await.expect("list");
+    assert_eq!(
+        rows[0].error.as_ref().expect("error row").data.code,
+        "ROOT_MISMATCH"
+    );
+}
+
+#[tokio::test]
+async fn a_browser_root_for_another_block_number_is_a_mismatch() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = browser_root(BLOCK_NUMBER + 1, BLOCK_HASH, state_root);
+
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "ROOT_MISMATCH", "{got}");
+}
+
+#[tokio::test]
+async fn a_browser_root_must_name_the_block_the_proof_was_fetched_at() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = browser_root(BLOCK_NUMBER, B256::repeat_byte(0x55), state_root);
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{got}");
+
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = json!({"number": "12", "hash": "0x01"});
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{got}");
+}

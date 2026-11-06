@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from 'react'
 import { AnonRpcWorker } from '@anon-rpc/browser-harness'
 import { createPrivateReader, type PrivateProvider, type PrivateReader, type VeriqClient } from 'veriq-client'
+import { browserLightClient, isBrowserLightClientEnabled } from './lightclient'
 
 /** Nox's worker specifier contract on Sepolia (proven in M0, docs/ANON_RPC_FEASIBILITY.md). */
 export const NOX_SEPOLIA = '0x35133267A8F7EC35046a83DCA0f4Ca8A6e1b7A9A'
@@ -173,17 +174,26 @@ export function startAnon(): Promise<void> {
   }
 }
 
+/** The running worker's fetch: every request it makes goes through Nox. Starts Nox if needed. */
+export async function getAnonFetch(): Promise<(input: string, init?: RequestInit) => Promise<Response>> {
+  await startAnon()
+  const worker = anon().worker
+  if (!worker) throw new AnonUnavailableError('the Nox worker is not running')
+  return (input, init) => worker.fetch(input, init)
+}
+
 /** The private reader over the running worker, created once per client. Starts Nox if needed. */
 export async function getPrivateReader(client: VeriqClient): Promise<PrivateReader> {
-  await startAnon()
+  const fetchThroughNox = await getAnonFetch()
   const s = anon()
   if (s.reader?.client === client) return s.reader.reader
-  const worker = s.worker
-  if (!worker) throw new AnonUnavailableError('the Nox worker is not running')
   const reader = createPrivateReader(client, {
-    fetch: (input, init) => worker.fetch(input, init),
+    fetch: fetchThroughNox,
     network: ANON_NETWORK,
     providers: parseProviders(import.meta.env.VITE_ANON_PROVIDERS),
+    // S4.2: when Helios in this tab is synced, its finalized block is the one read, and the
+    // engine's root must be that same block (else ROOT_MISMATCH).
+    ...(isBrowserLightClientEnabled() ? { lightClient: browserLightClient } : {}),
   })
   s.reader = { client, reader }
   return reader

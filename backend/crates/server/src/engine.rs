@@ -69,6 +69,9 @@ pub struct CodeRead {
     pub receipt: Receipt,
 }
 
+/// Receipt warning code: the root was cross-checked with a light client in the browser.
+pub const BROWSER_LIGHT_CLIENT: &str = "BROWSER_LIGHT_CLIENT";
+
 /// What a client-fetched proof claims to be (`veriq_verifyProof`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProofKind {
@@ -106,6 +109,17 @@ pub struct ClientProof {
     /// Anon-RPC network name for the receipt, e.g. `nox` (same character rules).
     pub network: String,
     pub elapsed_ms: u64,
+    /// The finalized block a light client in the browser reported (S4.2). Optional; when
+    /// present it must be exactly the engine's pinned block, else the read fails closed.
+    pub browser_root: Option<BrowserRoot>,
+}
+
+/// A finalized block as seen by a light client running in the client's browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BrowserRoot {
+    pub number: u64,
+    pub hash: B256,
+    pub state_root: B256,
 }
 
 #[derive(Debug, Clone)]
@@ -710,6 +724,22 @@ impl Engine {
                 input.block_hash, root.number, root.hash
             )));
         }
+        if let Some(browser) = &input.browser_root {
+            // Two trusted roots for the read: they must be the same block, or nothing is
+            // verified. Neither side is picked.
+            if browser.hash != input.block_hash {
+                return Err(VeriqError::invalid_request(
+                    "browserRoot.hash must be the blockHash the proof was fetched at",
+                ));
+            }
+            if browser.number != root.number || browser.state_root != root.state_root {
+                return Err(VeriqError::root_mismatch(format!(
+                    "the browser light client reports block #{} with state root {:#x}; the \
+                     engine's light client has #{} {:#x} with state root {:#x}",
+                    browser.number, browser.state_root, root.number, root.hash, root.state_root
+                )));
+            }
+        }
         let label = format!("{}@anon-rpc:{}", input.provider, input.network);
         let started = Instant::now();
         let verified = parse_proof_result(&input.proof).and_then(|bundle| {
@@ -721,6 +751,17 @@ impl Engine {
         let value = verified?;
 
         let mut warnings = Vec::new();
+        if input.browser_root.is_some() {
+            // Additive marker (no enum change): rootSource stays local-light-client.
+            warnings.push(Warning {
+                code: BROWSER_LIGHT_CLIENT.to_string(),
+                message: format!(
+                    "a light client in the browser, synced over {}, produced this same \
+                     finalized block and state root",
+                    input.network
+                ),
+            });
+        }
         if policy.consistency == Consistency::Compare {
             warnings.push(Warning {
                 code: "COMPARE_UNAVAILABLE".to_string(),

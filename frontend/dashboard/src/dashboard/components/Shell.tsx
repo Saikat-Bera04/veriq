@@ -20,6 +20,7 @@ import {
 import { LogoIcon } from '@/components/landing/primitives'
 import { ENGINE_DISPLAY, getEngineDisplayAddress, useHealth } from '../lib/engine'
 import { isAnonEnabled, startAnon } from '../lib/anon'
+import { startBrowserLightClient } from '../lib/lightclient'
 import { formatNumber } from '../lib/format'
 import { Chip, SampleTag, TickingNumber, cx } from './ui'
 import { ReceiptDrawer } from './ReceiptDrawer'
@@ -293,9 +294,13 @@ export function Shell() {
   }, [item.title])
 
   // Join Nox as soon as /app loads, so the first read does not wait for it. startAnon is
-  // idempotent: StrictMode's double effect and hot reloads reuse the one worker.
+  // idempotent: StrictMode's double effect and hot reloads reuse the one worker. Helios in the
+  // browser (S4) starts once Nox is ready and syncs through it; also one per page.
   useEffect(() => {
-    if (isAnonEnabled()) void startAnon()
+    if (isAnonEnabled()) {
+      void startAnon()
+      void startBrowserLightClient()
+    }
   }, [])
 
   const toggle = () => {
