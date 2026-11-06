@@ -16,6 +16,7 @@ WORKDIR /app
 COPY --from=build /src/backend/target/release/veriq-server /usr/local/bin/veriq-server
 COPY backend/config ./config
 COPY docker/engine-entrypoint.sh /usr/local/bin/engine-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/engine-entrypoint.sh && chmod +x /usr/local/bin/engine-entrypoint.sh
 ENV HELIOS_DATA_DIR=/data/helios
 VOLUME /data
 HEALTHCHECK --interval=10s --timeout=3s --start-period=90s --retries=6 \
