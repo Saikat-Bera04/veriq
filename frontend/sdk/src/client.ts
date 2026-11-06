@@ -142,6 +142,11 @@ export interface ClientProofInput {
    * refuses the proof with ROOT_MISMATCH unless it is exactly its own pinned block.
    */
   browserRoot?: BrowserRoot
+  /**
+   * S5: `browser` when the client checked this proof itself first (the engine checks it again and
+   * marks the receipt `verifierLocation: "browser"`); `unavailable` when its verifier did not load.
+   */
+  verifier?: 'browser' | 'unavailable'
 }
 
 /** A finalized block from a light client running in the browser (e.g. Helios over Nox). */

@@ -617,29 +617,41 @@ verification into the browser).
 
 ### S5.1 — Compile the verifier to WebAssembly (from M0.4)
 
-- [ ] Promote the M0 spike to `backend/crates/verifier-wasm` with a small, stable API:
-      `verify_account`, `verify_storage`, `code_hash_matches`.
-- [ ] Ship the `.wasm` inside the SDK or as a dashboard static asset; lazy-load it.
-- [ ] Keep the same size bounds in WASM.
-- [ ] Test against all existing verifier fixtures (valid, tampered balance, tampered proof, wrong
-      slot, wrong root, absent account, zero slot).
-- [ ] Record artifact size, load time, verify time; publish in `docs/INTEGRATION_REPORT.md`.
+- [x] One verifier, two places: the engine's proof check (`eth_getProof` parsing, account /
+      storage / code-hash checks, claimed-vs-proven) moved into `veriq-verifier::read`
+      (`parse_proof_result`, `verify_read`, `code_hash_matches`); the engine and
+      `backend/crates/verifier-wasm` both call it. Existing engine tests unchanged and green.
+- [x] WASM API (ABI 2): `veriq_verify_read` (the full read), `veriq_verify_account`,
+      `veriq_verify_storage`, `veriq_code_hash_matches`, `veriq_binding` (engine receipt binding),
+      `veriq_abi_version`. Raw alloc/call/free, no wasm-bindgen.
+- [x] Shipped with the SDK as `veriq-client/verifier.wasm` (`frontend/sdk/wasm/`, built by
+      `scripts/build-verifier-wasm.sh`, profile `wasm-release`); `loadVerifier()` in the SDK; the
+      dashboard imports it with `?url` and loads it on the first private read.
+- [x] Same bounds in WASM (64 nodes, 1 KiB/node, request ≤ 2 × 2 MiB).
+- [x] Fixtures (Rust and the shipped .wasm from JS): valid EOA/storage/code, tampered balance,
+      tampered storage value, flipped proof byte, wrong root, uncovered slot, absent account, zero
+      slot (new `fixtures/demo-storage.json`: slot 0 = 42, slot 7 by exclusion), oversized node.
+- [x] Measured: 204,609 B (77,816 gzip); load 56 ms cold; verify 0.2–0.3 ms
+      (`docs/INTEGRATION_REPORT.md` §9).
 
 ### S5.2 — The browser checks proofs itself; the receipt says "verified in the browser"
 
-- [ ] Private reader verifies the proof with WASM before calling the engine; only a proof that passes
-      locally is sent to `veriq_verifyProof` for the trusted receipt (defence in depth).
-- [ ] New privacy/verification marker: `verification.verifierLocation = "browser"` (enum already has
-      it in the SDK/Rust). Make sure the engine accepts it for client proofs and the receipt says so.
-- [ ] If the engine is unavailable, the browser can still show the locally verified value with a
-      clearly labelled "local only, no engine receipt" state (optional; decide before building).
-- [ ] Test: a forged proof is rejected in the browser before any engine call; a valid proof gets a
-      receipt with `verifierLocation: "browser"`.
-- [ ] Test: WASM load failure → fail closed, or fall back to engine verification with an explicit
-      warning (choose one and test it).
+- [x] `createPrivateReader(..., { verifier })`: each proof is checked in the browser against the
+      pinned root first; a proof that fails is never sent to the engine (next provider).
+- [x] `veriq_verifyProof` `verifier: "browser"` → the engine checks again (same code) and sets
+      `verification.verifierLocation = "browser"`; claiming it gets nothing past the engine.
+      Browser and engine values must agree, else `INTERNAL_ERROR`, no value.
+- [x] **Decided: local-only state.** Engine unreachable + browser Helios synced + verifier
+      loaded → the value with a receipt made in the browser (`requestId local-…`, `LOCAL_ONLY`
+      warning, bindings from the Rust code), kept in the tab for the receipt drawer. Without a
+      synced browser root or the verifier: `EngineUnreachableError`, nothing fetched.
+- [x] **Decided: WASM load failure → engine verifies + warning.** Loaded once per reader; on
+      failure `verifier: "unavailable"` and the receipt gets `BROWSER_VERIFIER_UNAVAILABLE`.
+- [x] Tests: engine (`read_path.rs`, 4 new), SDK (`private.test.ts`, 10 new incl. real .wasm),
+      dashboard (`verifier.test.ts`, 4). Live: §9 of the integration report.
 
-**S5 done when:** private mode needs no engine to check the proof and the receipt says the browser
-verified it.
+**S5 status (2026-11-06):** private mode needs no engine to check a proof, receipts say
+`verifierLocation: browser`, and with the engine stopped a read still returns a verified value.
 
 ## S6 — Mainnet
 

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use alloy_primitives::{hex, keccak256, Address, Bytes, B256, U256};
+use alloy_primitives::{hex, Address, Bytes, B256, U256};
 use serde::Serialize;
 use serde_json::{json, Value};
 use veriq_core::{
@@ -15,7 +15,7 @@ use veriq_core::{
 use veriq_light_client::{PinnedRoot, RootSource, RootSourceProvider};
 use veriq_router::breaker::{CircuitBreaker, CooldownReason};
 use veriq_router::MAX_PROVIDER_ATTEMPTS;
-use veriq_verifier::{verify_account, verify_storage};
+use veriq_verifier::read::{verify_read, ProvenValue, ReadTarget};
 
 use crate::provider::{parse_proof_result, ProofBundle, ProofClient, ProofFetcher, ProviderConfig};
 use crate::store::{InMemoryReceiptStore, ReceiptStore, StoredError, StoredParams, StoredReceipt};
@@ -71,6 +71,8 @@ pub struct CodeRead {
 
 /// Receipt warning code: the root was cross-checked with a light client in the browser.
 pub const BROWSER_LIGHT_CLIENT: &str = "BROWSER_LIGHT_CLIENT";
+/// Receipt warning code: the client's browser verifier did not load; only the engine checked.
+pub const BROWSER_VERIFIER_UNAVAILABLE: &str = "BROWSER_VERIFIER_UNAVAILABLE";
 
 /// What a client-fetched proof claims to be (`veriq_verifyProof`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +114,20 @@ pub struct ClientProof {
     /// The finalized block a light client in the browser reported (S4.2). Optional; when
     /// present it must be exactly the engine's pinned block, else the read fails closed.
     pub browser_root: Option<BrowserRoot>,
+    /// What the client says about its own check of this proof (S5). The engine verifies anyway.
+    pub client_verifier: ClientVerifier,
+}
+
+/// `veriq_verifyProof` `verifier`: did the client check the proof itself before sending it?
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClientVerifier {
+    /// Not said (older clients): the engine is the only verifier.
+    #[default]
+    None,
+    /// Checked in the browser first; the receipt says `verifierLocation: browser`.
+    Browser,
+    /// The client has a verifier but it did not load; the receipt gets a warning.
+    Unavailable,
 }
 
 /// A finalized block as seen by a light client running in the client's browser.
@@ -762,6 +778,13 @@ impl Engine {
                 ),
             });
         }
+        if input.client_verifier == ClientVerifier::Unavailable {
+            warnings.push(Warning {
+                code: BROWSER_VERIFIER_UNAVAILABLE.to_string(),
+                message: "the browser verifier did not load; only the engine checked this proof"
+                    .to_string(),
+            });
+        }
         if policy.consistency == Consistency::Compare {
             warnings.push(Warning {
                 code: "COMPARE_UNAVAILABLE".to_string(),
@@ -769,7 +792,7 @@ impl Engine {
                     .to_string(),
             });
         }
-        let receipt = receipt(
+        let mut receipt = receipt(
             request,
             &root,
             source,
@@ -787,6 +810,11 @@ impl Engine {
                 mechanism: Some(input.network.clone()),
             },
         );
+        if input.client_verifier == ClientVerifier::Browser {
+            // The browser checked it first and the engine has just checked it again: same code
+            // (veriq_verifier::read), same root. A client that only claims this gains nothing.
+            receipt.verification.verifier_location = VerifierLocation::Browser;
+        }
         Ok((value, receipt))
     }
 
@@ -1028,43 +1056,20 @@ impl Engine {
         kind: ReadKind,
         root: &PinnedRoot,
     ) -> Result<ReadValue, VeriqError> {
-        // The provider's claimed account is checked, but only the PROVEN account is used.
-        let proven = verify_account(
-            root.state_root,
-            address,
-            &bundle.account_proof,
-            Some(bundle.account),
-        )?;
-        match kind {
-            ReadKind::Balance => Ok(ReadValue::Word(proven.account.balance)),
-            ReadKind::Nonce => Ok(ReadValue::Word(U256::from(proven.account.nonce))),
-            ReadKind::Code => {
-                let code = code.ok_or_else(|| VeriqError::invalid_proof("code was not fetched"))?;
-                if keccak256(&code) != proven.account.code_hash {
-                    return Err(VeriqError::invalid_proof(
-                        "code hash does not match proven account",
-                    ));
-                }
-                Ok(ReadValue::Code(code))
-            }
-            ReadKind::Storage(slot) => {
-                let storage = bundle
-                    .storage_proofs
-                    .iter()
-                    .find(|proof| proof.key == slot)
-                    .ok_or_else(|| {
-                        VeriqError::invalid_proof("provider omitted the requested storage slot")
-                    })?;
-                let proven_value =
-                    verify_storage(proven.account.storage_root, slot, &storage.proof)?;
-                if proven_value != storage.value {
-                    return Err(VeriqError::invalid_proof(
-                        "claimed storage value does not match proven value",
-                    ));
-                }
-                Ok(ReadValue::Word(proven_value))
-            }
-        }
+        // Shared with the browser verifier (veriq-verifier-wasm): the provider's claimed account
+        // is checked, but only the PROVEN value is returned.
+        let target = match kind {
+            ReadKind::Balance => ReadTarget::Balance,
+            ReadKind::Nonce => ReadTarget::Nonce,
+            ReadKind::Code => ReadTarget::Code,
+            ReadKind::Storage(slot) => ReadTarget::Storage(slot),
+        };
+        Ok(
+            match verify_read(bundle, code, address, target, root.state_root)? {
+                ProvenValue::Word(value) => ReadValue::Word(value),
+                ProvenValue::Code(code) => ReadValue::Code(code),
+            },
+        )
     }
 
     fn cache_get(

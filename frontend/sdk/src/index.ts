@@ -15,6 +15,8 @@ export { createVeriq, DEFAULT_ENGINE_URL, assertAddress, assertSlot, assertPolic
 export type { VeriqClient, VeriqOptions, ReadOptions, RawResult, RootInfo, ClientProofInput, BrowserRoot } from './client'
 export { createPrivateReader } from './private'
 export type { PrivateReader, PrivateReaderOptions, PrivateProvider, BrowserLightClient } from './private'
+export { loadVerifier, VerifierUnavailableError, VERIFIER_ABI_VERSION } from './wasm'
+export type { BrowserVerifier, VerifierSource, VerifyReadInput, VerifyReadOutcome } from './wasm'
 export { createTransport } from './transport'
 export type { VeriqTransport, VeriqTransportOptions } from './transport'
 export * from './errors'

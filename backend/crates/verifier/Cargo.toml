@@ -11,6 +11,7 @@ alloy-primitives.workspace = true
 alloy-rlp.workspace = true
 alloy-trie.workspace = true
 veriq-core = { path = "../core" }
+serde_json.workspace = true
 
 [dev-dependencies]
 alloy-primitives.workspace = true

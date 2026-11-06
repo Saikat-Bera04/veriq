@@ -4,7 +4,7 @@ use alloy_primitives::{Address, Bytes, B256, U256};
 use serde_json::{json, Value};
 use veriq_core::{Policy, VeriqError};
 
-use crate::engine::{BrowserRoot, ClientProof, Engine, ProofKind, RequestMeta};
+use crate::engine::{BrowserRoot, ClientProof, ClientVerifier, Engine, ProofKind, RequestMeta};
 use crate::store::valid_receipt_id;
 
 pub const READ_BALANCE: &str = "veriq_readBalance";
@@ -259,7 +259,7 @@ pub fn capabilities() -> Value {
 }
 
 /// `veriq_verifyProof` params[0]: `{ kind, address, slot?, blockHash, proof, code?, provider,
-/// network, elapsedMs?, browserRoot? }`.
+/// network, elapsedMs?, browserRoot?, verifier? }`.
 fn parse_client_proof(params: &Value) -> Result<ClientProof, VeriqError> {
     let input = params
         .as_array()
@@ -323,6 +323,24 @@ fn parse_client_proof(params: &Value) -> Result<ClientProof, VeriqError> {
         network: text("network")?.to_owned(),
         elapsed_ms: input.get("elapsedMs").and_then(Value::as_u64).unwrap_or(0),
         browser_root: parse_browser_root(input.get("browserRoot"))?,
+        client_verifier: match input.get("verifier").and_then(|v| {
+            if v.is_null() {
+                None
+            } else {
+                Some(v)
+            }
+        }) {
+            None => ClientVerifier::None,
+            Some(value) => match value.as_str() {
+                Some("browser") => ClientVerifier::Browser,
+                Some("unavailable") => ClientVerifier::Unavailable,
+                _ => {
+                    return Err(VeriqError::invalid_request(
+                        "verifier must be \"browser\" or \"unavailable\"",
+                    ))
+                }
+            },
+        },
     })
 }
 

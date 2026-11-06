@@ -14,6 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_HELIOS_CONSENSUS_RPC?: string
   /** checkpointz instance for the bootstrap checkpoint (another operator than the beacon API). */
   readonly VITE_HELIOS_CHECKPOINT_SOURCE?: string
+  /** `off`: proofs are checked by the engine only. Default: also in the browser (WebAssembly). */
+  readonly VITE_BROWSER_VERIFIER?: string
 }
 
 interface ImportMeta {

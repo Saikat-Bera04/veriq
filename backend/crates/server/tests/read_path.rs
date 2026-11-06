@@ -1445,3 +1445,70 @@ async fn a_browser_root_must_name_the_block_the_proof_was_fetched_at() {
     let got = dispatch(&engine, verify_request(input, None)).await;
     assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{got}");
 }
+
+// ---- S5: the browser checked the proof first ----------------------------------------------
+
+#[tokio::test]
+async fn a_browser_verified_proof_is_checked_again_and_the_receipt_says_browser() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["verifier"] = json!("browser");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert!(got.get("error").is_none(), "{got}");
+    assert_eq!(
+        got["result"]["receipt"]["verification"]["verifierLocation"],
+        "browser"
+    );
+    assert_eq!(
+        got["result"]["receipt"]["verification"]["status"],
+        "verified"
+    );
+}
+
+#[tokio::test]
+async fn claiming_browser_verification_does_not_get_a_forged_proof_through() {
+    let (state_root, mut bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    bundle.account.balance = U256::from(BALANCE + 1_000);
+    let mut input = balance_input(proof_json(&bundle));
+    input["verifier"] = json!("browser");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_PROOF", "{got}");
+}
+
+#[tokio::test]
+async fn without_a_client_verifier_the_engine_is_the_verifier_location() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert_eq!(
+        got["result"]["receipt"]["verification"]["verifierLocation"],
+        "local-engine"
+    );
+}
+
+#[tokio::test]
+async fn an_unavailable_browser_verifier_is_a_receipt_warning() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["verifier"] = json!("unavailable");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    let receipt = &got["result"]["receipt"];
+    assert_eq!(receipt["verification"]["verifierLocation"], "local-engine");
+    assert!(receipt["warnings"]
+        .as_array()
+        .expect("warnings")
+        .iter()
+        .any(|w| w["code"] == "BROWSER_VERIFIER_UNAVAILABLE"));
+
+    let mut input = balance_input(proof_json(&bundle));
+    input["verifier"] = json!("yes please");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{got}");
+}

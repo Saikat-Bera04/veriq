@@ -159,7 +159,7 @@ describe('Anon-RPC on: reads use the private reader', () => {
     expect(read.ok && read.result.receipt.privacy).toEqual({ transport: 'anon-rpc', mechanism: 'nox' })
     expect(read.ok && read.result.attempts.map((a) => a.provider)).toEqual(['publicnode@anon-rpc:nox'])
     expect(engineMethods(calls)).toEqual(['veriq_getRoot', 'veriq_verifyProof'])
-    expect(providerCalls).toEqual([{ url: 'https://ethereum-sepolia-rpc.publicnode.com', method: 'eth_getProof' }])
+    expect(providerCalls).toEqual([{ url: 'https://rpc.sepolia.ethpandaops.io', method: 'eth_getProof' }])
   })
 
   it('readStorage goes through Nox and returns a full-width value', async () => {

@@ -7,7 +7,9 @@
  */
 import { useSyncExternalStore } from 'react'
 import { AnonRpcWorker } from '@anon-rpc/browser-harness'
-import { createPrivateReader, type PrivateProvider, type PrivateReader, type VeriqClient } from 'veriq-client'
+import { createPrivateReader, loadVerifier, type PrivateProvider, type PrivateReader, type VeriqClient } from 'veriq-client'
+// The WebAssembly build of the engine's verifier, shipped with the SDK; fetched on the first read.
+import verifierWasmUrl from 'veriq-client/verifier.wasm?url'
 import { browserLightClient, isBrowserLightClientEnabled } from './lightclient'
 
 /** Nox's worker specifier contract on Sepolia (proven in M0, docs/ANON_RPC_FEASIBILITY.md). */
@@ -15,7 +17,15 @@ export const NOX_SEPOLIA = '0x35133267A8F7EC35046a83DCA0f4Ca8A6e1b7A9A'
 export const ANON_NETWORK = 'nox'
 /** Public, keyless. Used directly (not through Nox) only once, to read the specifier contract. */
 export const BOOTSTRAP_RPC = 'https://ethereum-sepolia-rpc.publicnode.com'
-export const DEFAULT_PROVIDERS: PrivateProvider[] = [{ label: 'publicnode', url: BOOTSTRAP_RPC }]
+/**
+ * Keyless Sepolia providers that serve eth_getProof at the finalized block. ethpandaops first:
+ * on 2026-11-06 PublicNode refused every finalized-block proof (4444 "maximum proof window").
+ * The first one is also browser Helios's execution RPC.
+ */
+export const DEFAULT_PROVIDERS: PrivateProvider[] = [
+  { label: 'ethpandaops', url: 'https://rpc.sepolia.ethpandaops.io' },
+  { label: 'publicnode', url: BOOTSTRAP_RPC },
+]
 /** Joining the mixnet normally takes seconds; past this the dashboard reports it as failed. */
 export const START_TIMEOUT_MS = 90_000
 
@@ -46,6 +56,12 @@ export type WorkerFactory = (init: ConstructorParameters<typeof AnonRpcWorker>[0
 export function isAnonEnabled(): boolean {
   const value = String(import.meta.env.VITE_ANON ?? '').trim().toLowerCase()
   return !['off', '0', 'false', 'no'].includes(value)
+}
+
+/** S5: check proofs in the browser too. On unless `VITE_BROWSER_VERIFIER=off`; needs Anon-RPC. */
+export function isBrowserVerifierEnabled(): boolean {
+  const value = String(import.meta.env.VITE_BROWSER_VERIFIER ?? '').trim().toLowerCase()
+  return isAnonEnabled() && !['off', '0', 'false', 'no'].includes(value)
 }
 
 /** `VITE_ANON_PROVIDERS="label=https://url,label2=https://url2"`; empty means PublicNode. */
@@ -194,6 +210,10 @@ export async function getPrivateReader(client: VeriqClient): Promise<PrivateRead
     // S4.2: when Helios in this tab is synced, its finalized block is the one read, and the
     // engine's root must be that same block (else ROOT_MISMATCH).
     ...(isBrowserLightClientEnabled() ? { lightClient: browserLightClient } : {}),
+    // S5: every proof is checked here first; with browser Helios synced, a read also works
+    // while the engine is down (local-only receipt). If the .wasm fails to load, the engine
+    // verifies alone and its receipt says BROWSER_VERIFIER_UNAVAILABLE.
+    ...(isBrowserVerifierEnabled() ? { verifier: () => loadVerifier(verifierWasmUrl) } : {}),
   })
   s.reader = { client, reader }
   return reader

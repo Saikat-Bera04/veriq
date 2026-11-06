@@ -26,6 +26,7 @@ beforeEach(() => {
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('veriq.dashboard.anon')]
   // Browser Helios (S4) likewise starts off; lightclient tests switch it on.
   vi.stubEnv('VITE_BROWSER_LIGHT_CLIENT', 'off')
+  vi.stubEnv('VITE_BROWSER_VERIFIER', 'off')
   localStorage.removeItem('veriq.browserHelios.v1')
 })
 

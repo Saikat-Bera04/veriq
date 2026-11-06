@@ -207,3 +207,24 @@ pnpm e2e                             # unattended check (stop pnpm demo first; i
 
 Refresh `backend/config/checkpoint.toml` if the check script reports a bootstrap failure (checkpoints expire
 after about 2 weeks).
+
+## 9. Private reads: browser light client (S4) and browser verifier (S5), 2026-11-06
+
+Live checks on macOS, Headless Chrome 156, local engine (`--features helios`, in-memory receipts),
+dashboard dev server, Nox on Sepolia. Not run: hosted (Vercel/Render), other browsers, p50/p95
+over many reads (Tier 3 harness).
+
+| Check | Result |
+|---|---|
+| Nox worker ready | 3.7–3.9 s after page load |
+| Browser Helios sync over Nox (Lodestar + checkpointz + execution RPC) | 8.4 s / 9.2 s / 9.5 s (three runs) |
+| Browser root vs engine root | same block, hash and state root (#12077231, #12077355) |
+| Verifier `.wasm` (`veriq-client/verifier.wasm`, `wasm-release` profile) | 204,609 bytes, 77,816 gzip |
+| Load + instantiate | 56 ms cold, 8–21 ms cached |
+| Verify one proof in the browser | storage 0.28 ms, balance 0.21 ms (mean of 50) |
+| Private read, engine up | 42 (`0x2a`), `verifierLocation: browser`, `BROWSER_LIGHT_CLIENT`, 786 ms |
+| Private read, engine stopped | 42, receipt `local-…` made in the browser, `LOCAL_ONLY`, 2.1 s |
+| PublicNode finalized `eth_getProof` | refused 12/12 (`4444 maximum proof window`); ethpandaops RPC answered, now first default |
+
+Tests: `cargo test --workspace`, SDK `wasm.test.ts` (shipped .wasm, every verifier fixture) and
+`private.test.ts`, dashboard `lightclient.test.ts`, `helios-fixture.test.ts`, `verifier.test.ts`.
