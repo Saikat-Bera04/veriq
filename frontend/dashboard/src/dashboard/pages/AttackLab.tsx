@@ -208,7 +208,7 @@ export function AttackLabPage() {
     if (!ADDRESS_RE.test(address.trim())) return
     setRunning(true)
     const id = ++runId.current
-    const [plain, veriq] = await Promise.all([plainGetBalance(address.trim()), readBalance(address.trim())])
+    const [plain, veriq] = await Promise.all([plainGetBalance(address.trim()), readBalance(address.trim(), undefined, { path: 'direct' })])
     if (id === runId.current) {
       setRun({ id, plain, veriq })
       setRunning(false)

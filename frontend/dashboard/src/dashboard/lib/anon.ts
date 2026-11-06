@@ -41,10 +41,55 @@ export interface AnonWorker {
 }
 export type WorkerFactory = (init: ConstructorParameters<typeof AnonRpcWorker>[0]) => AnonWorker
 
-/** `VITE_ANON=off` keeps every read on the direct engine path. Default: on. Read at call time. */
-export function isAnonEnabled(): boolean {
+/** `VITE_ANON=off` builds the app without private reads (no worker, no toggle). Default: on. */
+export function isAnonAvailable(): boolean {
   const value = String(import.meta.env.VITE_ANON ?? '').trim().toLowerCase()
   return !['off', '0', 'false', 'no'].includes(value)
+}
+
+/** `private`: reads go through Nox (the default). `direct`: the engine asks providers itself. */
+export type AnonMode = 'private' | 'direct'
+export const MODE_STORAGE_KEY = 'veriq.readMode'
+
+function storedMode(): AnonMode {
+  try {
+    return sessionStorage.getItem(MODE_STORAGE_KEY) === 'direct' ? 'direct' : 'private'
+  } catch {
+    return 'private'
+  }
+}
+
+/** The read path right now. Always `direct` when the build has Anon-RPC off. */
+export function getAnonMode(): AnonMode {
+  if (!isAnonAvailable()) return 'direct'
+  // Cached on the singleton: sessionStorage is read once per page, then setAnonMode keeps both.
+  const s = anon()
+  s.mode ??= storedMode()
+  return s.mode
+}
+
+/** Reads go through Nox right now. Read at call time, so the toggle takes effect at once. */
+export function isAnonEnabled(): boolean {
+  return getAnonMode() === 'private'
+}
+
+/**
+ * Switch the read path; kept in sessionStorage for this tab. Going direct keeps the worker
+ * running (warm), so switching back needs no new mixnet join. Going private starts it if needed.
+ */
+export function setAnonMode(mode: AnonMode): void {
+  try {
+    sessionStorage.setItem(MODE_STORAGE_KEY, mode)
+  } catch {
+    // storage unavailable: the switch still applies to this page
+  }
+  anon().mode = mode
+  notify()
+  if (mode === 'private' && isAnonAvailable()) void startAnon()
+}
+
+export function useAnonMode(): AnonMode {
+  return useSyncExternalStore(subscribeAnon, getAnonMode, getAnonMode)
 }
 
 /** `VITE_ANON_PROVIDERS="label=https://url,label2=https://url2"`; empty means PublicNode. */
@@ -82,6 +127,8 @@ interface AnonSingleton {
   reader: { client: VeriqClient; reader: PrivateReader } | null
   listeners: Set<() => void>
   factory: WorkerFactory
+  /** Last mode set on this page (sessionStorage holds it across reloads). */
+  mode?: AnonMode
 }
 
 // On globalThis, so a hot-reloaded copy of this module finds the worker that is already running.
@@ -94,10 +141,13 @@ function anon(): AnonSingleton {
   return holder[KEY]
 }
 
+function notify() {
+  for (const listener of anon().listeners) listener()
+}
+
 function setStatus(status: AnonStatus) {
-  const s = anon()
-  s.status = status
-  for (const listener of s.listeners) listener()
+  anon().status = status
+  notify()
 }
 
 export function getAnonStatus(): AnonStatus {
@@ -122,10 +172,11 @@ export function useAnonStatus(): AnonStatus {
 export function startAnon(): Promise<void> {
   const s = anon()
   if (s.starting) return s.starting
-  if (!isAnonEnabled()) {
-    s.starting = Promise.reject(new AnonUnavailableError('Anon-RPC is switched off (VITE_ANON=off)'))
-    s.starting.catch(() => {}) // a rejection nobody awaited is not an error
-    return s.starting
+  if (!isAnonAvailable()) {
+    // Not cached: nothing was started.
+    const off = Promise.reject(new AnonUnavailableError('Anon-RPC is switched off in this build (VITE_ANON=off)'))
+    off.catch(() => {}) // a rejection nobody awaited is not an error
+    return off
   }
   const started = Date.now()
   setStatus({ state: 'connecting' })

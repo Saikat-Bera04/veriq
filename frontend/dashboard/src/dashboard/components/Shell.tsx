@@ -20,6 +20,7 @@ import {
 import { LogoIcon } from '@/components/landing/primitives'
 import { ENGINE_DISPLAY, getEngineDisplayAddress, useHealth } from '../lib/engine'
 import { isAnonEnabled, startAnon } from '../lib/anon'
+import { AnonBadge } from './AnonBadge'
 import { formatNumber } from '../lib/format'
 import { Chip, SampleTag, TickingNumber, cx } from './ui'
 import { ReceiptDrawer } from './ReceiptDrawer'
@@ -228,6 +229,7 @@ function TopBar({ title }: { title: string }) {
             )}
           </Chip>
           {mock && <SampleTag />}
+          <AnonBadge />
         </div>
       </div>
     </header>

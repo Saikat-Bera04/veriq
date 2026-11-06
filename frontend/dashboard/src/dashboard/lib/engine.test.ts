@@ -228,3 +228,32 @@ describe('Anon-RPC off: the direct path is unchanged', () => {
     expect(factory).not.toHaveBeenCalled()
   })
 })
+
+describe('the private/direct switch', () => {
+  it('flips the read path at once, without a reload', async () => {
+    vi.stubEnv('VITE_ANON', 'on')
+    const calls = serve({ health: () => healthBody, engineRpc: anonEngine() })
+    fakeNox()
+    const engine = await load()
+    const anon = await import('./anon')
+    await engine.fetchHealth()
+
+    anon.setAnonMode('direct')
+    await engine.readBalance(ADDRESS)
+    anon.setAnonMode('private')
+    await engine.readBalance(ADDRESS)
+    expect(engineMethods(calls)).toEqual(['veriq_readBalance', 'veriq_getRoot', 'veriq_verifyProof'])
+  })
+
+  it('the Attack Lab read stays direct with Anon-RPC on, so the engine can try its attacker', async () => {
+    vi.stubEnv('VITE_ANON', 'on')
+    const calls = serve({ health: () => healthBody, engineRpc: anonEngine() })
+    const { providerCalls } = fakeNox()
+    const engine = await load()
+    await engine.fetchHealth()
+
+    await engine.readBalance(ADDRESS, undefined, { path: 'direct' })
+    expect(engineMethods(calls)).toEqual(['veriq_readBalance'])
+    expect(providerCalls).toHaveLength(0)
+  })
+})

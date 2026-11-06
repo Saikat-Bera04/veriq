@@ -27,7 +27,7 @@ import {
   mockSetMode,
   type AttackMode,
 } from './mock'
-import { getPrivateReader, isAnonEnabled } from './anon'
+import { getPrivateReader, isAnonEnabled, useAnonMode } from './anon'
 
 // `||`, not `??`: an empty VITE_* value (an unfilled line in .env, exported by scripts/demo.sh) means "default".
 export const ENGINE_BASE: string = import.meta.env.VITE_ENGINE_URL || '/engine'
@@ -150,11 +150,16 @@ async function readMock(address: string, policy: Policy): Promise<ReadOutcome> {
  * engine; if Nox is not available the read fails. It never quietly goes direct instead. Sample data
  * is used only when the engine itself is unreachable.
  */
-export async function readBalance(address: string, policy: Policy = verifiedFinalized): Promise<ReadOutcome> {
+export async function readBalance(
+  address: string,
+  policy: Policy = verifiedFinalized,
+  /** `direct`: always the engine's own provider routing (the Attack Lab needs its attacker in it). */
+  opts: { path?: 'auto' | 'direct' } = {},
+): Promise<ReadOutcome> {
   if (engineSource === 'mock') return readMock(address, policy)
   const source: Source = 'live'
   try {
-    const result = isAnonEnabled()
+    const result = opts.path !== 'direct' && isAnonEnabled()
       ? await (await getPrivateReader(veriq)).readBalance({ address, policy })
       : await veriq.readBalance({ address, policy })
     if (result.attempts.length === 0) {
@@ -192,8 +197,10 @@ export async function readStorage(
 }
 
 export function useDemoContractStorage() {
+  // The read path is part of the key: switching private <-> direct reads again on the new path.
+  const mode = useAnonMode()
   return useQuery({
-    queryKey: ['demo-contract-storage', DEMO_CONTRACT_ADDRESS, DEMO_CONTRACT_SLOT],
+    queryKey: ['demo-contract-storage', DEMO_CONTRACT_ADDRESS, DEMO_CONTRACT_SLOT, mode],
     queryFn: () => readStorage(),
     refetchInterval: 30_000,
     retry: false,

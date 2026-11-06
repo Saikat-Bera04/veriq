@@ -6,6 +6,7 @@ beforeEach(() => {
   // worker singleton; anon tests switch it on with vi.stubEnv('VITE_ANON', 'on').
   vi.stubEnv('VITE_ANON', 'off')
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('veriq.dashboard.anon')]
+  sessionStorage.clear()
 })
 
 afterEach(() => {
