@@ -58,7 +58,7 @@ type Kind = 'balance' | 'nonce' | 'storage' | 'code'
 /** Same rule as the engine (crates/router/src/probe.rs `valid_provider_name`). */
 const LABEL_RE = /^[A-Za-z0-9_.-]{1,64}$/
 /** How often one provider may re-fetch because the finalized block moved under it. */
-const MAX_ROOT_REFRESHES = 2
+const MAX_ROOT_REFRESHES = 1
 /** Upstream error text is cut to this length after secrets are removed. */
 const MAX_DETAIL = 160
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]'])
@@ -250,7 +250,15 @@ export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOpti
           )
         } catch (err) {
           lastError = err
-          if (rootMoved(err) && refreshes < MAX_ROOT_REFRESHES) continue // same provider, new root
+          if (rootMoved(err)) {
+            if (refreshes < MAX_ROOT_REFRESHES) continue // same provider, new root
+            // Another provider would race the same moving block; stop and say why.
+            throw new InvalidRequestError(
+              ERROR_CODES.INVALID_REQUEST,
+              `the finalized block moved again while fetching through ${opts.network}; nothing was verified`,
+              { cause: err, hint: 'Retry the read. The provider or network is slower than the finalized block moves.' },
+            )
+          }
           if (err instanceof InvalidProofError) break // a lying provider: next one
           throw err // policy, root, engine: not a provider problem
         }
