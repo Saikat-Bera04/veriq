@@ -1,0 +1,30 @@
+[package]
+name = "veriq-light-client"
+description = "Trusted finalized state-root sources for Veriq"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alloy-primitives.workspace = true
+async-trait.workspace = true
+veriq-core = { path = "../core" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+# Pinned to the same commit as 3A. Optional so the default build stays light.
+helios-ethereum = { git = "https://github.com/a16z/helios", package = "helios-ethereum", rev = "2af9b41887e069144ee56cd710f3ddca195473f8", optional = true }
+alloy = { version = "2.5", features = ["rpc-types", "consensus"], optional = true }
+
+[features]
+default = []
+helios = ["dep:helios-ethereum", "dep:alloy"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+
+[lints]
+workspace = true

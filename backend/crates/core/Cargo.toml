@@ -1,0 +1,15 @@
+[package]
+name = "veriq-core"
+description = "Shared Veriq types: errors, accounts, policies and trust receipts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alloy-primitives.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
