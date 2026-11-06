@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { OverviewPage } from './Overview'
-import { healthBody, RECEIPT, renderPage, serve } from '../test/services'
+import { anonEngine, fakeNox, healthBody, RECEIPT, renderPage, serve } from '../test/services'
 
 const storageReceipt = {
   ...RECEIPT,
@@ -71,5 +71,21 @@ describe('Overview deployed contract read', () => {
 
     expect(await screen.findByText(/The engine did not verify this storage proof/)).toBeTruthy()
     expect(screen.queryByText('42')).toBeNull()
+  })
+})
+
+describe('Overview deployed contract read through Anon-RPC', () => {
+  it('reads the slot through Nox and says so; veriq_readStorage is not called', async () => {
+    vi.stubEnv('VITE_ANON', 'on')
+    const calls = serve({ health: () => healthBody, receipts: () => ({ receipts: [] }), engineRpc: anonEngine() })
+    const { providerCalls } = fakeNox()
+    renderPage(<OverviewPage />)
+
+    expect(await screen.findByText('42')).toBeTruthy()
+    expect(screen.getByTestId('storage-transport').textContent).toBe('Fetched via anon-rpc · nox')
+    const methods = calls.filter((c) => c.url === '/engine').map((c) => (c.body as { method: string }).method)
+    expect(methods).toContain('veriq_verifyProof')
+    expect(methods).not.toContain('veriq_readStorage')
+    expect(providerCalls.map((c) => c.method)).toEqual(['eth_getProof'])
   })
 })

@@ -247,7 +247,19 @@ export function createVeriq(options: VeriqOptions = {}): VeriqClient {
     },
     async verifyProof(input, p = policy) {
       assertPolicy(p)
-      const raw = await rpcCall(ctx, 'veriq_verifyProof', [input, p], { timeoutMs: readTimeout(p) })
+      assertAddress(input.address)
+      if (input.kind === 'storage') {
+        if (input.slot === undefined) throw invalid('a storage proof needs a slot')
+        assertSlot(input.slot)
+      }
+      // A new object: the caller's input is never changed. `slot` is sent only for storage.
+      const { slot, elapsedMs, ...rest } = input
+      const payload = {
+        ...rest,
+        ...(input.kind === 'storage' ? { slot } : {}),
+        ...(elapsedMs === undefined ? {} : { elapsedMs }),
+      }
+      const raw = await rpcCall(ctx, 'veriq_verifyProof', [payload, p], { timeoutMs: readTimeout(p) })
       const r = parseWith(ReadResultSchema, raw, 'result')
       return { value: r.value as Hex, receipt: r.receipt, verified: r.receipt.verification.status === 'verified', attempts: attemptsFromReceipt(r.receipt) }
     },

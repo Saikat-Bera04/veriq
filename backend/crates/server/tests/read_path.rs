@@ -1022,7 +1022,9 @@ impl RootSourceProvider for MovingRoot {
     async fn current_root(&self) -> Result<PinnedRoot, VeriqError> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst) as u8;
         if self.failing {
-            return Err(VeriqError::root_unavailable("light client has no finalized block"));
+            return Err(VeriqError::root_unavailable(
+                "light client has no finalized block",
+            ));
         }
         Ok(PinnedRoot::new(
             BLOCK_NUMBER + u64::from(call),
@@ -1290,7 +1292,10 @@ async fn a_bad_storage_slot_is_refused_before_any_proof_work() {
         input["kind"] = json!("storage");
         input["slot"] = slot.clone();
         let got = dispatch(&engine, verify_request(input, None)).await;
-        assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{slot}: {got}");
+        assert_eq!(
+            got["error"]["data"]["code"], "INVALID_REQUEST",
+            "{slot}: {got}"
+        );
     }
     // Refused while parsing: nothing reached the engine, so nothing was stored.
     assert!(engine.store().list(10).await.expect("list").is_empty());
@@ -1317,7 +1322,10 @@ async fn compare_on_a_client_proof_warns_that_nothing_was_compared() {
         .filter_map(|warning| warning["code"].as_str())
         .collect();
     assert!(codes.contains(&"COMPARE_UNAVAILABLE"), "{codes:?}");
-    assert!(!codes.contains(&"PRIVACY_DOWNGRADED"), "the private path is not a downgrade");
+    assert!(
+        !codes.contains(&"PRIVACY_DOWNGRADED"),
+        "the private path is not a downgrade"
+    );
     assert_eq!(receipt["routing"]["comparison"], "not-run");
     assert_eq!(
         receipt["routing"]["attempts"][0]["provider"],
