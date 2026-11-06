@@ -218,7 +218,10 @@ mod tests {
             mechanism: Some("nox".to_owned()),
         };
         let encoded = serde_json::to_value(&private).expect("privacy serializes");
-        assert_eq!(encoded, json!({"transport": "anon-rpc", "mechanism": "nox"}));
+        assert_eq!(
+            encoded,
+            json!({"transport": "anon-rpc", "mechanism": "nox"})
+        );
         let decoded: Privacy = serde_json::from_value(encoded).expect("privacy deserializes");
         assert_eq!(decoded, private);
 
