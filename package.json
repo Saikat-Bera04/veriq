@@ -1,11 +1,26 @@
 {
   "name": "veriq",
   "private": true,
-  "packageManager": "pnpm@10.19.0",
   "scripts": {
     "dev": "pnpm --filter veriq-dashboard dev",
-    "dev:dashboard": "pnpm --filter veriq-dashboard dev",
+    "backend:build": "cargo build --manifest-path backend/Cargo.toml --workspace",
+    "backend:test": "cargo test --manifest-path backend/Cargo.toml --workspace",
+    "backend:check": "cargo fmt --manifest-path backend/Cargo.toml --all -- --check && cargo clippy --manifest-path backend/Cargo.toml --workspace --all-targets -- -D warnings",
+    "contracts:build": "cd smart-contract && forge build",
+    "contracts:test": "cd smart-contract && forge test",
     "build": "pnpm -r build",
-    "test": "pnpm -r test"
-  }
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "rust:check": "cargo fmt --manifest-path backend/Cargo.toml --all -- --check && cargo clippy --manifest-path backend/Cargo.toml --workspace --all-targets -- -D warnings && cargo clippy --manifest-path backend/Cargo.toml -p veriq-malicious-rpc --features demo --all-targets -- -D warnings",
+    "rust:test": "cargo test --manifest-path backend/Cargo.toml --workspace && cargo test --manifest-path backend/Cargo.toml -p veriq-malicious-rpc --features demo",
+    "db:generate": "pnpm --filter @veriq/database prisma:generate",
+    "db:migrate": "pnpm --filter @veriq/database db:migrate",
+    "db:deploy": "pnpm --filter @veriq/database db:deploy",
+    "db:studio": "pnpm --filter @veriq/database db:studio",
+    "demo": "bash ./scripts/demo.sh",
+    "e2e": "bash ./scripts/e2e.sh",
+    "e2e:dev": "bash ./scripts/e2e.sh --dev",
+    "attack-check": "bash ./scripts/attack-check.sh"
+  },
+  "packageManager": "pnpm@10.19.0"
 }

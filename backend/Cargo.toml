@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/verifier",
+    "crates/verifier-wasm",
+    "crates/light-client",
+    "crates/router",
+    "crates/server",
+    "crates/malicious-rpc",
+    "tests/integration",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+alloy-primitives = { version = "1.7", features = ["serde", "rlp"] }
+alloy-rlp = "0.3"
+alloy-trie = { version = "0.9", features = ["ethereum"] }
+async-trait = "0.1"
+axum = "0.8"
+dotenvy = "0.15"
+# http2 + gzip/brotli: fewer, smaller provider round-trips. Bodies are decompressed by
+# reqwest, and every reader caps them at 2 MiB of *decompressed* bytes.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "socks", "http2", "gzip", "brotli"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time", "net", "io-util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
