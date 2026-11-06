@@ -1,6 +1,6 @@
 {
   "name": "veriq-client",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Verified Ethereum reads, with a receipt for every answer.",
   "license": "MIT",
   "type": "module",
