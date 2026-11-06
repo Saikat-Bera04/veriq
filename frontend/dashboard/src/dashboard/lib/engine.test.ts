@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HONEST_WEI, healthBody, receiptRow, RECEIPT, serve, verifiedRead } from '../test/services'
+import { anonEngine, fakeNox, HONEST_WEI, healthBody, receiptRow, RECEIPT, serve, verifiedRead } from '../test/services'
 
 // engine.ts remembers whether the engine/attacker answered (module state), so each
 // test gets a fresh copy.
@@ -143,60 +143,14 @@ describe('live/mock fallback tagging', () => {
 // ---------------------------------------------------------------- Anon-RPC (M3.2)
 
 const ADDRESS = '0x0000000000000000000000000000000000000000'
-const ROOT = {
-  number: RECEIPT.block.number,
-  hash: RECEIPT.block.hash,
-  stateRoot: RECEIPT.block.stateRoot,
-  rootSource: 'local-light-client',
-  verified: true,
-}
-const PROOF = { accountProof: ['0x01'], balance: '0x1', nonce: '0x0', codeHash: RECEIPT.block.hash, storageHash: RECEIPT.block.hash, storageProof: [] }
-const ANON_RECEIPT = {
-  ...RECEIPT,
-  privacy: { transport: 'anon-rpc', mechanism: 'nox' },
-  routing: {
-    comparison: 'not-run',
-    providersTried: 1,
-    providerLabel: 'publicnode@anon-rpc:nox',
-    attempts: [{ provider: 'publicnode@anon-rpc:nox', outcome: 'success', elapsedMs: 2100 }],
-  },
-}
-
-/** Engine answering the private path (getRoot + verifyProof) and the direct one. */
-function anonEngine(method: string, params: unknown[]) {
-  if (method === 'veriq_getRoot') return { result: ROOT }
-  if (method === 'veriq_verifyProof') {
-    const kind = (params[0] as { kind: string }).kind
-    return { result: { value: kind === 'storage' ? '0x2a' : `0x${HONEST_WEI.toString(16)}`, receipt: ANON_RECEIPT } }
-  }
-  return verifiedRead()
-}
-
-/** A ready fake Nox worker: provider calls answered with a proof, echoing the JSON-RPC id. */
-async function nox(state: 'ready' | 'failed' = 'ready') {
-  const anon = await import('./anon')
-  const providerCalls: { url: string; method: string }[] = []
-  const factory = vi.fn(() => ({
-    ready: state === 'ready' ? Promise.resolve() : Promise.reject(new Error('mixnet unreachable')),
-    fetch: vi.fn(async (url: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { id: number; method: string }
-      providerCalls.push({ url, method: body.method })
-      return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: PROOF }))
-    }),
-    close: vi.fn(),
-  }))
-  anon.resetAnonForTests(factory)
-  return { factory, providerCalls }
-}
-
 const engineMethods = (calls: ReturnType<typeof serve>) =>
   calls.filter((c) => c.url === '/engine').map((c) => (c.body as { method: string }).method)
 
 describe('Anon-RPC on: reads use the private reader', () => {
   it('readBalance goes through Nox and veriq_verifyProof; the direct read is never called', async () => {
     vi.stubEnv('VITE_ANON', 'on')
-    const calls = serve({ health: () => healthBody, engineRpc: anonEngine })
-    const { providerCalls } = await nox()
+    const calls = serve({ health: () => healthBody, engineRpc: anonEngine() })
+    const { providerCalls } = fakeNox()
     const engine = await load()
     await engine.fetchHealth()
 
@@ -210,8 +164,8 @@ describe('Anon-RPC on: reads use the private reader', () => {
 
   it('readStorage goes through Nox and returns a full-width value', async () => {
     vi.stubEnv('VITE_ANON', 'on')
-    const calls = serve({ health: () => healthBody, engineRpc: anonEngine })
-    await nox()
+    const calls = serve({ health: () => healthBody, engineRpc: anonEngine() })
+    fakeNox()
     const engine = await load()
 
     const out = await engine.readStorage()
@@ -222,8 +176,8 @@ describe('Anon-RPC on: reads use the private reader', () => {
 
   it('if Nox cannot start, the read fails; it never falls back to a direct read', async () => {
     vi.stubEnv('VITE_ANON', 'on')
-    const calls = serve({ health: () => healthBody, engineRpc: anonEngine })
-    await nox('failed')
+    const calls = serve({ health: () => healthBody, engineRpc: anonEngine() })
+    fakeNox('failed')
     const engine = await load()
     await engine.fetchHealth()
 
@@ -239,7 +193,7 @@ describe('Anon-RPC on: reads use the private reader', () => {
   it('an unreachable engine still shows sample data, without starting a private read', async () => {
     vi.stubEnv('VITE_ANON', 'on')
     serve({}) // nothing answers
-    const { providerCalls } = await nox()
+    const { providerCalls } = fakeNox()
     const engine = await load()
     await engine.fetchHealth()
     const read = await engine.readBalance(ADDRESS)
@@ -250,7 +204,7 @@ describe('Anon-RPC on: reads use the private reader', () => {
   it('health, receipts and the attacker never go through Nox', async () => {
     vi.stubEnv('VITE_ANON', 'on')
     serve({ health: () => healthBody, receipts: () => ({ receipts: [receiptRow] }), attackerMode: () => 'off' })
-    const { providerCalls } = await nox()
+    const { providerCalls } = fakeNox()
     const engine = await load()
     await engine.fetchHealth()
     await engine.fetchReceipts(10)
@@ -262,8 +216,8 @@ describe('Anon-RPC on: reads use the private reader', () => {
 
 describe('Anon-RPC off: the direct path is unchanged', () => {
   it('readBalance and readStorage call veriq_readBalance / veriq_readStorage and start no worker', async () => {
-    const calls = serve({ health: () => healthBody, engineRpc: anonEngine })
-    const { factory } = await nox()
+    const calls = serve({ health: () => healthBody, engineRpc: anonEngine() })
+    const { factory } = fakeNox()
     const engine = await load()
     await engine.fetchHealth()
 

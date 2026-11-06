@@ -9,6 +9,7 @@ import { render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import receiptSample from '../../../../../fixtures/receipt-sample.json'
+import { resetAnonForTests } from '../lib/anon'
 
 /** The real, Helios-verified receipt shared with the Rust and SDK tests. */
 export const RECEIPT = receiptSample
@@ -131,4 +132,57 @@ export function renderPage(ui: ReactNode) {
       <MemoryRouter>{ui}</MemoryRouter>
     </QueryClientProvider>,
   )
+}
+
+// ---------------------------------------------------------------- Anon-RPC (Nox)
+
+/** veriq_getRoot for the real receipt's block. */
+export const ANON_ROOT = {
+  number: RECEIPT.block.number,
+  hash: RECEIPT.block.hash,
+  stateRoot: RECEIPT.block.stateRoot,
+  rootSource: 'local-light-client',
+  verified: true,
+}
+
+/** The real receipt as a private read returns it: fetched through Nox, verified by the engine. */
+export const ANON_RECEIPT = {
+  ...RECEIPT,
+  privacy: { transport: 'anon-rpc', mechanism: 'nox' },
+  routing: {
+    comparison: 'not-run',
+    providersTried: 1,
+    providerLabel: 'publicnode@anon-rpc:nox',
+    attempts: [{ provider: 'publicnode@anon-rpc:nox', outcome: 'success', elapsedMs: 2100 }],
+  },
+}
+
+/** Engine side of a private read: getRoot + verifyProof (value by kind). Anything else: `other`. */
+export function anonEngine(other: (method: string, params: unknown[]) => Rpc = () => verifiedRead()) {
+  return (method: string, params: unknown[]): Rpc => {
+    if (method === 'veriq_getRoot') return { result: ANON_ROOT }
+    if (method === 'veriq_verifyProof') {
+      const kind = (params[0] as { kind: string }).kind
+      const value = kind === 'storage' ? '0x2a' : `0x${HONEST_WEI.toString(16)}`
+      return { result: { value, receipt: ANON_RECEIPT } }
+    }
+    return other(method, params)
+  }
+}
+
+/** Install a ready fake Nox worker (no network); returns the provider calls it served. */
+export function fakeNox(state: 'ready' | 'failed' = 'ready') {
+  const providerCalls: { url: string; method: string }[] = []
+  const proof = { accountProof: ['0x01'], balance: '0x1', nonce: '0x0', codeHash: RECEIPT.block.hash, storageHash: RECEIPT.block.hash, storageProof: [] }
+  const factory = vi.fn(() => ({
+    ready: state === 'ready' ? Promise.resolve() : Promise.reject(new Error('mixnet unreachable')),
+    fetch: vi.fn(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { id: number; method: string }
+      providerCalls.push({ url, method: body.method })
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: proof }))
+    }),
+    close: vi.fn(),
+  }))
+  resetAnonForTests(factory)
+  return { factory, providerCalls }
 }
