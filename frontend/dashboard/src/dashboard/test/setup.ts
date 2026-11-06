@@ -32,14 +32,9 @@ beforeEach(() => {
   // S6: tests read Sepolia unless they switch.
   vi.stubEnv('VITE_CHAIN', 'sepolia')
   vi.stubEnv('VITE_ANON_NETWORK', '')
-})
-
-beforeEach(() => {
-  // Anon-RPC is on in the app by default. Tests start with it off (the direct path) and a fresh
-  // worker singleton; anon tests switch it on with vi.stubEnv('VITE_ANON', 'on').
-  vi.stubEnv('VITE_ANON', 'off')
-  delete (globalThis as Record<symbol, unknown>)[Symbol.for('veriq.dashboard.anon')]
-  sessionStorage.clear()
+  // The private/direct switch lives in sessionStorage. Node-environment tests
+  // (`@vitest-environment node`, e.g. helios-fixture.test.ts) have none.
+  globalThis.sessionStorage?.clear()
 })
 
 afterEach(() => {
