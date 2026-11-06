@@ -58,8 +58,7 @@ Thumbs.db
 *.seed
 *.local
 
-# Rust
-Cargo.lock
+# Rust (backend/Cargo.lock is committed: the engine is an application and the Dockerfiles build --locked)
 
 # Foundry
 broadcast/*/*/dry-run/
