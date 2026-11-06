@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>S6 probe: Nym mixFetch on mainnet</title>
+  <link rel="icon" href="data:,">
+  <script type="importmap">
+  {
+    "imports": {
+      "@nymproject/mix-fetch": "./node_modules/@nymproject/mix-fetch/dist/index.js",
+      "@nymproject/mix-tunnel": "./node_modules/@nymproject/mix-tunnel/dist/esm/index.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <h1>S6 probe: Nym mixFetch to mainnet RPCs and beacon APIs</h1>
+  <p>Tunnel: <span id="tunnel" role="status">idle</span></p>
+  <pre id="log"></pre>
+  <script type="module" src="./nym.js"></script>
+</body>
+</html>

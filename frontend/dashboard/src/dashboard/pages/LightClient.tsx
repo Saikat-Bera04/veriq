@@ -4,6 +4,7 @@ import { useHealth, useReceipts } from '../lib/engine'
 import { formatNumber, timeAgo } from '../lib/format'
 import { Card, CardTitle, Chip, EmptyState, ErrorCard, Hash, HeroPanel, Label, SampleTag, Skeleton, Stagger, TickingNumber, useNow } from '../components/ui'
 import { useBrowserLightClient, type BrowserLightClientStatus } from '../lib/lightclient'
+import { anonNetwork } from '../lib/chain'
 
 const BROWSER_STATE: Record<BrowserLightClientStatus['state'], { label: string; tone: 'ok' | 'warn' | 'err' | 'neutral'; dot: 'live' | 'off' | 'warn' | 'err' }> = {
   off: { label: 'Off', tone: 'neutral', dot: 'off' },
@@ -36,7 +37,7 @@ export function BrowserLightClientCard({ engine }: { engine?: { number?: number 
             <Chip tone={view.tone} dot={view.dot}>
               <span role="status" aria-label={`Browser light client: ${view.label}`}>{view.label}</span>
             </Chip>
-            <Chip>Helios · over Nox</Chip>
+            <Chip>Helios · over {anonNetwork()}</Chip>
           </div>
         }
       >
@@ -45,7 +46,7 @@ export function BrowserLightClientCard({ engine }: { engine?: { number?: number 
       <p className="text-sm text-vq-muted -mt-2">
         {status.state === 'off'
           ? 'Off (needs Anon-RPC). Private reads use the engine root alone.'
-          : 'Helios runs in this tab and syncs every beacon and execution request through Nox. Private reads use its finalized block, and the engine must report the same one.'}
+          : `Helios runs in this tab and syncs every beacon and execution request through ${anonNetwork()}. Private reads use its finalized block, and the engine must report the same one.`}
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
         <div>

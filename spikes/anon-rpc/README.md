@@ -114,3 +114,11 @@ curl -s https://checkpoint-sync.sepolia.ethpandaops.io/checkpointz/v1/status \
 `?record=1` keeps every response in `window.__s4.recorded` (that is how
 `fixtures/browser-helios/*.json.gz` was made); `?beacon=https://…` tries another beacon API. The
 index page also takes `?beacon=` for the M0.1 probe. Results: `docs/ANON_RPC_FEASIBILITY.md#s4--helios-in-the-browser-over-nox`.
+
+## S6 probe: Nym mixFetch on mainnet (`nym.html`)
+
+`http://127.0.0.1:5180/nym.html` sets up a Nym tunnel (`@nymproject/mix-fetch` 3.0.1, pinned) and
+sends `eth_chainId` / `eth_getProof` (finalized and block hash) to three keyless mainnet RPCs,
+plus the mainnet beacon light-client API and beaconcha.in checkpointz, all through Nym. Results in
+`window.__s6`; written up in `docs/ANON_RPC_FEASIBILITY.md#s6--nym-mixfetch-on-mainnet`. Each page
+load gets a new tunnel, and tunnels vary: re-run if one never becomes ready.

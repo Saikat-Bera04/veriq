@@ -40,6 +40,8 @@ export const BlockSchema = z.object({
   hash: Hex32Schema,
   stateRoot: Hex32Schema,
   finalized: z.boolean(),
+  /** S6: the chain this block is on. Absent in receipts from engines before mainnet support. */
+  chainId: u64.optional(),
 })
 
 export const BootstrapSchema = z.object({
@@ -172,6 +174,8 @@ export const RootInfoSchema = z.object({
   stateRoot: Hex32Schema,
   rootSource: z.string(),
   verified: z.boolean(),
+  /** S6: the engine's chain. Absent from older engines. */
+  chainId: z.number().int().positive().optional(),
 })
 
 /** A stored receipt row (GET /receipts, GET /receipts/:id). Failed reads carry `error` instead of `receipt`. */

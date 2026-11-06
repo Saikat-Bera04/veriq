@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AllProvidersFailedError,
+  ChainMismatchError,
   EngineUnreachableError,
+  PRIVATE_NETWORKS,
+  PrivacyUnavailableError,
   InternalError,
   InvalidProofError,
   InvalidRequestError,
@@ -47,7 +50,7 @@ function ok(input: Record<string, unknown>) {
 type Verify = (input: Record<string, unknown>, n: number) => ReturnType<Handler>
 
 /** Engine stand-in. getRoot answers `roots` in turn (the last one repeats); verifyProof answers `verify`. */
-function engine(verify: Verify = (input) => ok(input), roots = [ROOT]) {
+function engine(verify: Verify = (input) => ok(input), roots: Array<typeof ROOT & { chainId?: number }> = [ROOT]) {
   let verifies = 0
   let rootCalls = 0
   const handler: Handler = (method, params) => {
@@ -594,5 +597,49 @@ describe('S5: proofs checked in the browser first', () => {
       const p = anonFetch(() => ({ result: lie }))
       await expect(make(deadEngine().fetch, p, { verifier: wasm, lightClient: lc }).readStorage({ address: demo.address, slot: '0x0' })).rejects.toBeInstanceOf(InvalidProofError)
     })
+  })
+})
+
+describe('S6: the private network follows the chain', () => {
+  const reader = (network: string, chainId: number, roots: Array<typeof ROOT & { chainId?: number }> = [ROOT], p = anonFetch()) =>
+    createPrivateReader(createVeriq({ url: ENGINE_URL, fetch: engine(undefined, roots).fetch }), { fetch: p.fetch, network, providers: [A], chainId })
+
+  it('Nox on Sepolia, Nym or Tor on mainnet', () => {
+    expect(PRIVATE_NETWORKS).toEqual({ 1: ['nym', 'tor'], 11155111: ['nox'] })
+    expect(() => reader('nox', 11155111)).not.toThrow()
+    expect(() => reader('nym', 1)).not.toThrow()
+    expect(() => reader('tor', 1)).not.toThrow()
+  })
+
+  it('a wrong network for the chain is PrivacyUnavailableError before anything is sent', () => {
+    const p = anonFetch()
+    let err: unknown
+    try {
+      reader('nox', 1, [ROOT], p)
+    } catch (e) {
+      err = e
+    }
+    expect(err).toBeInstanceOf(PrivacyUnavailableError)
+    expect((err as Error).message).toMatch(/"nox" does not carry chain 1; use "nym" or "tor"/)
+    expect(() => reader('nym', 11155111)).toThrow(PrivacyUnavailableError)
+    expect(() => reader('nox', 10)).toThrow(/no private network is known for chain 10/)
+    expect(p.calls).toHaveLength(0)
+  })
+
+  it('an engine on another chain is ChainMismatchError; no provider is asked', async () => {
+    const p = anonFetch()
+    const mainnetReader = reader('nym', 1, [{ ...ROOT, chainId: 11155111 }], p)
+    await expect(mainnetReader.readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(ChainMismatchError)
+    // An engine from before S6 reports no chainId: it can only be Sepolia.
+    await expect(reader('nym', 1, [ROOT], p).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(ChainMismatchError)
+    expect(p.calls).toHaveLength(0)
+  })
+
+  it('the matching engine reads normally', async () => {
+    const p = anonFetch()
+    const r = await reader('nym', 1, [{ ...ROOT, chainId: 1 }], p).readBalance({ address: ADDRESS })
+    expect(r.value).toBe(2_000_000_000_000_000_000n)
+    expect(new Set(p.calls.map((c) => c.url))).toEqual(new Set([A.url]))
+    await expect(reader('nox', 11155111, [ROOT]).readBalance({ address: ADDRESS })).resolves.toBeDefined()
   })
 })

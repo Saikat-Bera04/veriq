@@ -13,7 +13,7 @@
  */
 export { createVeriq, DEFAULT_ENGINE_URL, assertAddress, assertSlot, assertPolicy, attemptsFromReceipt } from './client'
 export type { VeriqClient, VeriqOptions, ReadOptions, RawResult, RootInfo, ClientProofInput, BrowserRoot } from './client'
-export { createPrivateReader } from './private'
+export { createPrivateReader, PRIVATE_NETWORKS, assertNetworkForChain } from './private'
 export type { PrivateReader, PrivateReaderOptions, PrivateProvider, BrowserLightClient } from './private'
 export { loadVerifier, VerifierUnavailableError, VERIFIER_ABI_VERSION } from './wasm'
 export type { BrowserVerifier, VerifierSource, VerifyReadInput, VerifyReadOutcome } from './wasm'

@@ -13,7 +13,7 @@ export const ERROR_CODES = {
 } as const
 
 /** Client-side codes (not sent by the engine). */
-export const CLIENT_CODES = { ENGINE_UNREACHABLE: -1, SCHEMA_MISMATCH: -2 } as const
+export const CLIENT_CODES = { ENGINE_UNREACHABLE: -1, SCHEMA_MISMATCH: -2, CHAIN_MISMATCH: -3 } as const
 
 export type EngineErrorName = keyof typeof ERROR_CODES
 export type VeriqErrorName = EngineErrorName | keyof typeof CLIENT_CODES | 'UNKNOWN'
@@ -48,6 +48,7 @@ export const ERROR_HINTS: Record<VeriqErrorName, string> = {
   INTERNAL_ERROR: 'Retry shortly; if the error persists, check the engine health endpoint.',
   ENGINE_UNREACHABLE: `No Veriq engine at ${DEFAULT_URL}. Start it with: cd backend && cargo run -p veriq-server`,
   SCHEMA_MISMATCH: 'The engine answered with a shape this SDK does not understand. Make sure SDK and engine versions match.',
+  CHAIN_MISMATCH: 'The engine serves another chain than this reader reads. Point the client at an engine started with the matching VERIQ_NETWORK.',
   UNKNOWN: 'Unexpected engine error. Check the engine logs.',
 }
 
@@ -109,6 +110,8 @@ export class AllProvidersFailedError extends VeriqError {}
 export class RootMismatchError extends VeriqError {}
 export class InvalidRequestError extends VeriqError {}
 export class InternalError extends VeriqError {}
+/** The engine serves another chain than the one this client reads (S6). Nothing was read. */
+export class ChainMismatchError extends VeriqError {}
 /** The engine could not be reached (network failure, nothing listening). */
 export class EngineUnreachableError extends VeriqError {}
 /** The engine's answer did not match the receipt schema. `issues` lists readable paths. */
@@ -135,6 +138,7 @@ export const ERROR_CLASSES: Record<number, ErrorClass> = {
   [ERROR_CODES.INVALID_REQUEST]: InvalidRequestError,
   [ERROR_CODES.INTERNAL_ERROR]: InternalError,
   [CLIENT_CODES.ENGINE_UNREACHABLE]: EngineUnreachableError,
+  [CLIENT_CODES.CHAIN_MISMATCH]: ChainMismatchError,
 }
 
 const ALL_CODES: Record<string, number> = { ...ERROR_CODES, ...CLIENT_CODES }

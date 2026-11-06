@@ -11,6 +11,8 @@ use crate::{PinnedRoot, RootSource, RootSourceProvider, MAX_FINALIZED_AGE_SECOND
 /// Configuration for the local Helios light client.
 #[derive(Debug, Clone)]
 pub struct HeliosConfig {
+    /// Which chain to follow; the checkpoint must be a beacon block root of this chain.
+    pub network: veriq_core::Network,
     pub execution_rpc: String,
     pub consensus_rpc: String,
     pub checkpoint: B256,
@@ -33,7 +35,10 @@ impl HeliosRoot {
         let checkpoint = config.checkpoint;
         let checkpoint_source = config.checkpoint_source.clone();
         let client = EthereumClientBuilder::new()
-            .network(Network::Sepolia)
+            .network(match config.network {
+                veriq_core::Network::Sepolia => Network::Sepolia,
+                veriq_core::Network::Mainnet => Network::Mainnet,
+            })
             .consensus_rpc(&config.consensus_rpc)
             .map_err(|_| unavailable("invalid consensus RPC"))?
             .execution_rpc(&config.execution_rpc)

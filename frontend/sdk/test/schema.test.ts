@@ -14,7 +14,7 @@ describe('TrustReceipt schema', () => {
     const shape = TrustReceiptSchema.shape
     expect(keys(shape)).toEqual(['block', 'freshness', 'identity', 'privacy', 'routing', 'verification', 'warnings'])
     expect(keys(shape.identity.shape)).toEqual(['method', 'requestBinding', 'requestId', 'resultBinding'])
-    expect(keys(shape.block.shape)).toEqual(['finalized', 'hash', 'number', 'stateRoot'])
+    expect(keys(shape.block.shape)).toEqual(['chainId', 'finalized', 'hash', 'number', 'stateRoot'])
     expect(keys(shape.verification.shape)).toEqual(['bootstrap', 'mechanisms', 'rootSource', 'status', 'verifierLocation'])
     expect(keys(shape.privacy.shape)).toEqual(['mechanism', 'transport'])
     expect(keys(shape.routing.shape)).toEqual(['attempts', 'comparison', 'providerLabel', 'providersTried'])

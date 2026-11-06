@@ -113,7 +113,7 @@ describe('startBrowserLightClient', () => {
     const helios = fakeHelios()
     await startBrowserLightClient()
     expect(getBrowserLightClientStatus().state).toBe('failed')
-    expect(getBrowserLightClientStatus().error).toMatch(/Nox/)
+    expect(getBrowserLightClientStatus().error).toMatch(/over nox/)
     expect(helios.factory).not.toHaveBeenCalled()
   })
 

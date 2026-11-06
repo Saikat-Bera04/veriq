@@ -3,14 +3,14 @@ use std::{env, net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 use alloy_primitives::B256;
 use async_trait::async_trait;
 use veriq_core::config::env as names;
-use veriq_core::VeriqError;
+use veriq_core::{Network, VeriqError};
 #[cfg(feature = "helios")]
 use veriq_light_client::helios_adapter::{HeliosConfig, HeliosRoot};
 use veriq_light_client::{
     cached::CachedRoot, fixed::FixedRoot, untrusted_rpc::UntrustedRpcRoot, PinnedRoot, RootSource,
     RootSourceProvider,
 };
-use veriq_router::probe::probe_providers;
+use veriq_router::probe::probe_providers_for;
 use veriq_server::{
     config::{self, FileConfig},
     engine::{
@@ -33,20 +33,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
+    // One engine, one chain (S6): VERIQ_NETWORK picks the config and checkpoint files, the
+    // probe's expected chain id, the light client's network and the chain id in receipts.
+    let network = config::network_from_env()?;
     let config_dir = config::config_dir();
     if !config_dir.is_dir() {
         tracing::warn!(
             dir = %config_dir.display(),
-            "config folder not found; sepolia.toml and checkpoint.toml are not loaded (set VERIQ_CONFIG_DIR)"
+            "config folder not found; network and checkpoint files are not loaded (set VERIQ_CONFIG_DIR)"
         );
     }
-    let file_config = config::load(&config_dir)?;
+    let file_config = config::load(&config_dir, network)?;
     if let Some(cp) = &file_config.checkpoint {
         tracing::info!(
             checkpoint_source = %veriq_server::logging::redact_sensitive(&cp.checkpoint_source),
-            "pinned checkpoint loaded from config/checkpoint.toml"
+            file = network.checkpoint_file(),
+            "pinned checkpoint loaded"
         );
     }
+    tracing::info!(
+        network = network.name(),
+        chain_id = network.chain_id(),
+        "network selected"
+    );
 
     let providers_input = env::var(names::PROVIDERS)
         .map_err(|_| "VERIQ_PROVIDERS is required (label=url,label=url)")?;
@@ -72,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let root = cache_root(select_root(&providers, &file_config)?)?;
+    let root = cache_root(select_root(&providers, &file_config, network)?)?;
     tracing::info!(
         providers = providers.len(),
         root_source = root.source().as_str(),
@@ -81,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Startup probe (crates/router): right chain, eth_getProof, EIP-1898 blockHash.
     // Ineligible providers stay listed in /health but are never routed to.
-    let probed = probe_providers(&providers_input).await;
+    let probed = probe_providers_for(&providers_input, network.chain_id()).await;
     // A provider the probe could not reach (no chain id) is left unprobed, not excluded.
     let probes: Vec<Option<ProbeStatus>> = providers
         .iter()
@@ -106,6 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let engine = Engine::new(root, providers)
+        .with_network(network)
         .with_probes(probes)
         .with_store(receipt_store)
         .with_verified_cache(verified_cache);
@@ -202,6 +212,7 @@ fn spawn_reprobe(engine: &Engine) -> Result<(), Box<dyn std::error::Error>> {
 fn select_root(
     providers: &[ProviderConfig],
     file_config: &FileConfig,
+    network: Network,
 ) -> Result<Arc<dyn RootSourceProvider>, Box<dyn std::error::Error>> {
     match env::var(names::ROOT_SOURCE).as_deref() {
         Ok("fixture") => Ok(Arc::new(fixture_root()?)),
@@ -237,14 +248,14 @@ fn select_root(
         Ok("helios") => {
             #[cfg(feature = "helios")]
             {
-                let config = helios_config(providers, file_config)?;
+                let config = helios_config(providers, file_config, network)?;
                 let root = HeliosRoot::start(config)?;
                 tracing::info!("helios root source started; waiting for finalized sync");
                 Ok(Arc::new(root))
             }
             #[cfg(not(feature = "helios"))]
             {
-                let _ = file_config;
+                let _ = (file_config, network);
                 tracing::error!("VERIQ_ROOT_SOURCE=helios requires --features helios");
                 Ok(Arc::new(UnavailableRoot::new(
                     "helios root source requires building with --features helios",
@@ -265,6 +276,7 @@ fn select_root(
 fn helios_config(
     providers: &[ProviderConfig],
     file_config: &FileConfig,
+    network: Network,
 ) -> Result<HeliosConfig, Box<dyn std::error::Error>> {
     let execution_rpc = env::var(names::EXEC_RPC)
         .ok()
@@ -272,22 +284,45 @@ fn helios_config(
         .unwrap_or_else(|| providers[0].url.clone());
     let consensus_rpc = env::var(names::HELIOS_CONSENSUS_RPC)
         .map_err(|_| "HELIOS_CONSENSUS_RPC is required for VERIQ_ROOT_SOURCE=helios")?;
-    // Env overrides config/checkpoint.toml; one of the two must provide the checkpoint.
+    // Env overrides the network's checkpoint file; one of the two must provide the checkpoint.
     let file_cp = file_config.checkpoint.as_ref();
+    // A HELIOS_CHECKPOINT in .env is a beacon block root of one chain. Off Sepolia it must say
+    // which (HELIOS_CHECKPOINT_NETWORK), so a Sepolia root is never handed to mainnet Helios.
+    let env_cp = env::var(names::HELIOS_CHECKPOINT)
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    if env_cp.is_some() && network != Network::Sepolia {
+        let named = env::var(names::HELIOS_CHECKPOINT_NETWORK).unwrap_or_default();
+        if Network::parse(&named) != Some(network) {
+            return Err(format!(
+                "HELIOS_CHECKPOINT is set but VERIQ_NETWORK={}: set HELIOS_CHECKPOINT_NETWORK={} \
+                 to confirm it is a {} root, or leave HELIOS_CHECKPOINT empty to use config/{}",
+                network.name(),
+                network.name(),
+                network.name(),
+                network.checkpoint_file()
+            )
+            .into());
+        }
+    }
     let checkpoint = B256::from_str(
-        &env::var(names::HELIOS_CHECKPOINT)
-            .ok()
-            .filter(|v| !v.trim().is_empty())
+        &env_cp
             .or_else(|| file_cp.map(|cp| cp.checkpoint.clone()))
-            .ok_or("HELIOS_CHECKPOINT (or config/checkpoint.toml) is required for helios")?,
+            .ok_or("HELIOS_CHECKPOINT (or the network's checkpoint file) is required for helios")?,
     )?;
-    // The OS temp folder: /tmp on Linux and macOS, %TEMP% on Windows.
-    let data_dir = env::var(names::HELIOS_DATA_DIR).unwrap_or_else(|_| {
-        env::temp_dir()
-            .join("veriq-helios")
-            .to_string_lossy()
-            .into_owned()
-    });
+    // The OS temp folder: /tmp on Linux and macOS, %TEMP% on Windows. One folder per network:
+    // Helios stores its newest checkpoint there, which must never be read by another chain.
+    // An empty HELIOS_DATA_DIR (an unfilled .env line) means the default, not the current folder.
+    let data_dir = env::var(names::HELIOS_DATA_DIR)
+        .ok()
+        .filter(|dir| !dir.trim().is_empty())
+        .unwrap_or_else(|| {
+            let folder = match network {
+                Network::Sepolia => "veriq-helios".to_owned(),
+                other => format!("veriq-helios-{}", other.name()),
+            };
+            env::temp_dir().join(folder).to_string_lossy().into_owned()
+        });
     let checkpoint_source = env::var(names::HELIOS_CHECKPOINT_SOURCE)
         .ok()
         .filter(|v| !v.trim().is_empty())
@@ -297,6 +332,7 @@ fn helios_config(
         return Err("HELIOS_CONSENSUS_RPC must not be empty".into());
     }
     Ok(HeliosConfig {
+        network,
         execution_rpc,
         consensus_rpc,
         checkpoint,

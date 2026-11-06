@@ -228,3 +228,20 @@ over many reads (Tier 3 harness).
 
 Tests: `cargo test --workspace`, SDK `wasm.test.ts` (shipped .wasm, every verifier fixture) and
 `private.test.ts`, dashboard `lightclient.test.ts`, `helios-fixture.test.ts`, `verifier.test.ts`.
+
+## 10. Mainnet (S6), 2026-11-06
+
+Mainnet engine: `VERIQ_NETWORK=mainnet`, `--features helios`, Lodestar mainnet consensus, providers
+PublicNode + BlastAPI (keyless), in-memory receipts. Dashboard dev server with `VITE_CHAIN=mainnet`,
+Headless Chrome 156. Not run: hosted mainnet, Tor.
+
+| Check | Result |
+|---|---|
+| Engine startup with the `.env` Sepolia `HELIOS_CHECKPOINT` | refused, with the fix in the message |
+| Engine Helios sync (checkpoint from `checkpoint-mainnet.toml`) | 10 s, finalized #26356755 |
+| Startup probe | both providers `chain_ok` on chain 1, `eth_getProof` + EIP-1898 |
+| `veriq_readBalance` / `veriq_readStorage` USDT (engine path, direct) | verified, `block.chainId: 1` |
+| `veriq_getRoot` / `eth_chainId` | `chainId: 1` / `0x1` |
+| Nym tunnel (dashboard) | ready 7.0 s; earlier runs: one never ready, one ready but every request timed out |
+| Browser Helios over Nym | synced in 100.5 s, #26356818 |
+| Private read over Nym (USDT slot 0) | owner address, `anon-rpc · nym`, `drpc@anon-rpc:nym`, `verifierLocation: browser`, `BROWSER_LIGHT_CLIENT`, 21 s |

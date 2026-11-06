@@ -657,26 +657,45 @@ verification into the browser).
 
 ### S6.1 — Mainnet config: chain ID, Helios checkpoint
 
-- [ ] Add `backend/config/mainnet.toml` (chain id `0x1`, execution/consensus defaults, no secrets).
-- [ ] Add a mainnet checkpoint to `checkpoint.toml` (source documented, different from the consensus
-      RPC) and a `mainnet` example in `.env.example`.
-- [ ] `config.rs` must accept either network without weakening the Sepolia guard (no mixed
-      chain/root).
-- [ ] Receipts record the mainnet chain id and block; SDK types accept it.
-- [ ] Tests: mainnet config loads; wrong-chain provider is rejected; fixture root still works.
+- [x] `VERIQ_NETWORK=sepolia|mainnet` (default sepolia; `veriq_core::Network`). One engine serves
+      one chain; it picks `config/<network>.toml`, the checkpoint file, the probe's expected chain,
+      Helios's network, a per-network Helios data dir, `eth_chainId` and `/health` `chainId`.
+- [x] `backend/config/mainnet.toml` (chain 1) and `checkpoint-mainnet.toml` (`network =
+      "mainnet"`, root from beaconcha.in checkpointz, confirmed canonical + finalized at slot
+      15596192 on the PublicNode beacon API; the engine syncs from Lodestar). `.env.example`
+      has a mainnet block.
+- [x] No mixing: a network file with another chain id, a checkpoint file pinned for another
+      network, and (off Sepolia) a `HELIOS_CHECKPOINT` without `HELIOS_CHECKPOINT_NETWORK` all
+      stop the engine at startup.
+- [x] Receipts: additive `block.chainId` (absent in old receipts, which still parse);
+      `veriq_getRoot` returns `chainId`. SDK schemas accept both as optional.
+- [x] Tests: mainnet config loads; wrong chain / wrong checkpoint network refused; a mainnet
+      engine marks a Sepolia provider "wrong chain"; fixture root verifies on a mainnet engine
+      with `chainId: 1`; `veriq_getRoot` field set updated. Live 2026-11-06: mainnet engine synced
+      in 10 s, USDT balance and slot 0 verified with `chainId: 1`.
 
 ### S6.2 — Tor/Nym on mainnet, Nox on Sepolia
 
-- [ ] Add a transport abstraction so the SDK/dashboard can select `nox` (Sepolia) or `tor`/`nym`
-      (mainnet) without changing the reader.
-- [ ] Implement the mainnet private fetch (Tor SOCKS via a local proxy or a Nym client; decide from
-      available tooling) and document setup.
-- [ ] Network selector follows the chain: Sepolia → Nox, mainnet → Tor/Nym; no silent fallback.
-- [ ] Receipt `privacy.mechanism` is the selected network (`nox`, `tor`, `nym`).
-- [ ] Test: wrong transport for chain → typed error; selected transport used for every provider call.
-- [ ] Live mainnet check with one balance and one storage proof, if an endpoint is available.
+- [x] Network follows the chain: SDK `PRIVATE_NETWORKS = { 1: [nym, tor], 11155111: [nox] }`,
+      `createPrivateReader({ chainId })` throws `PrivacyUnavailableError` for a network that does
+      not carry the chain, and `ChainMismatchError` (client code -3) when the engine's
+      `veriq_getRoot` names another chain (an engine without `chainId` counts as Sepolia).
+- [x] Dashboard: `VITE_CHAIN=sepolia|mainnet` (`lib/chain.ts`) picks the network (Nox / Nym), the
+      keyless providers, and browser Helios's beacon API + checkpointz; `VITE_ANON_NETWORK`
+      overrides within the allowed set. Nym (`@nymproject/mix-fetch` 3.0.1, lazy 6.4 MB gzip
+      chunk) sits behind the same worker interface as Nox; `tor` in the browser is a typed
+      failure. Receipt `privacy.mechanism` is the selected network.
+- [ ] **Tor fetch not shipped** (decided 2026-11-06): `tor` is accepted for mainnet in the SDK, so
+      a Node app can pass its own SOCKS-backed fetch; no Tor implementation or live Tor test yet.
+- [ ] **Nym tunnel recovery:** recreate the tunnel after repeated timeouts (see
+      `docs/ANON_RPC_FEASIBILITY.md#s6--nym-mixfetch-on-mainnet`).
+- [x] Tests: SDK (`private.test.ts` S6, 4), dashboard (`chain.test.ts`, 7). Live 2026-11-06
+      (mainnet engine + `VITE_CHAIN=mainnet`): Nym ready 7.0 s, browser Helios synced over Nym in
+      100.5 s, USDT slot 0 read through Nym (`drpc@anon-rpc:nym`), `chainId: 1`,
+      `verifierLocation: browser`, `BROWSER_LIGHT_CLIENT`, 21 s.
 
-**S6 done when:** mainnet reads go through Tor or Nym and Sepolia remains on Nox.
+**S6 status (2026-11-06):** mainnet reads go through Nym and Sepolia stays on Nox. Open: Tor fetch,
+Nym tunnel recovery.
 
 ## S7 — Docs and pitch
 

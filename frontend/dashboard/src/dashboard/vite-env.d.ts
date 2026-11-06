@@ -16,6 +16,10 @@ interface ImportMetaEnv {
   readonly VITE_HELIOS_CHECKPOINT_SOURCE?: string
   /** `off`: proofs are checked by the engine only. Default: also in the browser (WebAssembly). */
   readonly VITE_BROWSER_VERIFIER?: string
+  /** `sepolia` (default) or `mainnet` (S6). The engine must be started with the same VERIQ_NETWORK. */
+  readonly VITE_CHAIN?: string
+  /** Override the chain's private network: Sepolia `nox`; mainnet `nym` (default) or `tor` (no browser fetch). */
+  readonly VITE_ANON_NETWORK?: string
 }
 
 interface ImportMeta {

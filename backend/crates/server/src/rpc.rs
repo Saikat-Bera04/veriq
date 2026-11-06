@@ -24,6 +24,7 @@ pub const PROOFROUTE_GET_PROVIDER_HEALTH: &str = "proofroute_getProviderHealth";
 pub const PROOFROUTE_GET_CAPABILITIES: &str = "proofroute_getCapabilities";
 
 /// Sepolia, answered locally and never forwarded.
+/// Sepolia's `eth_chainId` (the default network). The engine answers with its own network's id.
 pub const CHAIN_ID_HEX: &str = "0xaa36a7";
 
 /// Methods answered with a proof-checked value at the pinned finalized block.
@@ -137,6 +138,8 @@ pub async fn dispatch(engine: &Engine, request: Value) -> Value {
                     "stateRoot": format!("{:#x}", root.state_root),
                     "rootSource": source.as_str(),
                     "verified": source.is_verified(),
+                    // S6: the client checks it is talking to an engine on the chain it reads.
+                    "chainId": engine.network().chain_id(),
                 }),
                 None,
             ),
@@ -163,7 +166,7 @@ pub async fn dispatch(engine: &Engine, request: Value) -> Value {
                 Err(err) => error_response(&id, &err),
             }
         }
-        "eth_chainId" => success_response(&id, json!(CHAIN_ID_HEX), None),
+        "eth_chainId" => success_response(&id, json!(engine.network().chain_id_hex()), None),
         "eth_getBalance" => {
             if let Err(err) = require_finalized(&params, 1) {
                 return error_response(&id, &err);

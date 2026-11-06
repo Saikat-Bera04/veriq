@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use veriq_core::{
     binding, AttemptOutcome, Block, BlockPolicy, Bootstrap, Comparison, Consistency, ErrorCode,
-    Identity, Mechanism, Policy, Privacy, PrivacyPolicy, Receipt, RootSourceKind, Routing,
+    Identity, Mechanism, Network, Policy, Privacy, PrivacyPolicy, Receipt, RootSourceKind, Routing,
     RoutingAttempt, Transport, Verification, VerificationStatus, VerifierLocation, VeriqError,
     Warning,
 };
@@ -340,6 +340,8 @@ pub struct Engine {
     stats: Arc<Mutex<HashMap<String, ProviderStats>>>,
     store: Arc<dyn ReceiptStore>,
     cache: Option<Arc<Mutex<VerifiedCache>>>,
+    /// The one chain this engine serves (S6). Receipts and veriq_getRoot carry its id.
+    network: Network,
 }
 
 impl Engine {
@@ -362,12 +364,23 @@ impl Engine {
             stats: Arc::default(),
             store: Arc::new(InMemoryReceiptStore::new()),
             cache: None,
+            network: Network::default(),
         }
     }
 
     /// Serve repeat reads at the same finalized block from already-verified values
     /// (see `VerifiedCache`). Only `consistency: single` reads use it.
     #[must_use]
+    /// The chain this engine serves. Default: Sepolia.
+    pub fn with_network(mut self, network: Network) -> Self {
+        self.network = network;
+        self
+    }
+
+    pub const fn network(&self) -> Network {
+        self.network
+    }
+
     pub fn with_verified_cache(mut self, enabled: bool) -> Self {
         self.cache = enabled.then(Arc::default);
         self
@@ -414,7 +427,12 @@ impl Engine {
         let mut recovered = 0;
         for index in ineligible {
             let provider = &self.providers[index];
-            let caps = veriq_router::probe::probe_endpoint(&provider.label, &provider.url).await;
+            let caps = veriq_router::probe::probe_endpoint_for(
+                &provider.label,
+                &provider.url,
+                self.network.chain_id(),
+            )
+            .await;
             let Some(status) = ProbeStatus::from_capabilities(&caps) else {
                 continue;
             };
@@ -809,6 +827,7 @@ impl Engine {
                 transport: Transport::AnonRpc,
                 mechanism: Some(input.network.clone()),
             },
+            self.network,
         );
         if input.client_verifier == ClientVerifier::Browser {
             // The browser checked it first and the engine has just checked it again: same code
@@ -865,6 +884,7 @@ impl Engine {
                     &self.root.bootstrap(),
                     warnings,
                     DIRECT,
+                    self.network,
                 );
                 return (Ok((value, receipt)), Vec::new());
             }
@@ -1004,6 +1024,7 @@ impl Engine {
             &self.root.bootstrap(),
             warnings,
             DIRECT,
+            self.network,
         );
         (Ok((value, receipt)), attempts)
     }
@@ -1217,6 +1238,7 @@ fn receipt(
     bootstrap: &Bootstrap,
     mut warnings: Vec<Warning>,
     privacy: Privacy,
+    network: Network,
 ) -> Receipt {
     let status = if source.is_verified() {
         VerificationStatus::Verified
@@ -1244,6 +1266,7 @@ fn receipt(
             hash: root.hash,
             state_root: root.state_root,
             finalized: true,
+            chain_id: Some(network.chain_id()),
         },
         verification: Verification {
             status,

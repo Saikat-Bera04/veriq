@@ -1,31 +1,33 @@
 /**
- * Anon-RPC (Nox) for the dashboard: one worker per page, started when /app loads.
+ * Anon-RPC for the dashboard: one anonymizing worker per page, started when /app loads.
  *
- * Reads that go through the private reader are fetched by the browser through Nox and verified
- * by the engine against its own root, so providers see the mixnet's exit, not this browser.
+ * Reads that go through the private reader are fetched by the browser through the mixnet and
+ * verified (here and by the engine), so providers see the mixnet's exit, not this browser.
  * Only reads use it: /health, receipts, provider health and the Attack Lab stay direct.
+ *
+ * The network follows the chain (S6, lib/chain.ts): Nox on Sepolia, Nym (`mixFetch`) on
+ * mainnet. A network the chain does not allow, or Tor (no browser fetch), is a typed failure.
  */
 import { useSyncExternalStore } from 'react'
 import { AnonRpcWorker } from '@anon-rpc/browser-harness'
-import { createPrivateReader, loadVerifier, type PrivateProvider, type PrivateReader, type VeriqClient } from 'veriq-client'
+import { assertNetworkForChain, createPrivateReader, loadVerifier, type PrivateProvider, type PrivateReader, type VeriqClient } from 'veriq-client'
 // The WebAssembly build of the engine's verifier, shipped with the SDK; fetched on the first read.
 import verifierWasmUrl from 'veriq-client/verifier.wasm?url'
 import { browserLightClient, isBrowserLightClientEnabled } from './lightclient'
+import { anonNetwork, CHAINS, currentChain } from './chain'
 
 /** Nox's worker specifier contract on Sepolia (proven in M0, docs/ANON_RPC_FEASIBILITY.md). */
 export const NOX_SEPOLIA = '0x35133267A8F7EC35046a83DCA0f4Ca8A6e1b7A9A'
+/** @deprecated The network follows the chain: use anonNetwork() (lib/chain.ts). Sepolia's. */
 export const ANON_NETWORK = 'nox'
+export { anonNetwork } from './chain'
 /** Public, keyless. Used directly (not through Nox) only once, to read the specifier contract. */
 export const BOOTSTRAP_RPC = 'https://ethereum-sepolia-rpc.publicnode.com'
 /**
- * Keyless Sepolia providers that serve eth_getProof at the finalized block. ethpandaops first:
- * on 2026-11-06 PublicNode refused every finalized-block proof (4444 "maximum proof window").
- * The first one is also browser Helios's execution RPC.
+ * Keyless Sepolia providers that serve eth_getProof at the finalized block (see lib/chain.ts for
+ * every chain). The first one is also browser Helios's execution RPC.
  */
-export const DEFAULT_PROVIDERS: PrivateProvider[] = [
-  { label: 'ethpandaops', url: 'https://rpc.sepolia.ethpandaops.io' },
-  { label: 'publicnode', url: BOOTSTRAP_RPC },
-]
+export const DEFAULT_PROVIDERS: PrivateProvider[] = CHAINS.sepolia.providers
 /** Joining the mixnet normally takes seconds; past this the dashboard reports it as failed. */
 export const START_TIMEOUT_MS = 90_000
 
@@ -44,13 +46,37 @@ export class AnonUnavailableError extends Error {
   override name = 'AnonUnavailableError'
 }
 
-/** The part of AnonRpcWorker this module uses (tests pass a fake). */
+/** The part of AnonRpcWorker (or the Nym tunnel) this module uses (tests pass a fake). */
 export interface AnonWorker {
   ready: Promise<void>
   fetch: (input: string, init?: RequestInit) => Promise<Response>
   close(): void
 }
 export type WorkerFactory = (init: ConstructorParameters<typeof AnonRpcWorker>[0]) => AnonWorker
+/** Makes the Nym worker (mainnet). Tests pass a fake. */
+export type NymFactory = () => AnonWorker
+
+/**
+ * Nym's mixFetch behind the AnonWorker shape. The ~6 MB (gzip) tunnel bundle loads only here.
+ * `signal` is dropped: the tunnel runs in a Web Worker and an AbortSignal cannot be sent there;
+ * the private reader's own timeout still bounds every request.
+ */
+const defaultNymFactory: NymFactory = () => {
+  const nym = import('@nymproject/mix-fetch')
+  const ready = nym.then((m) => m.setupMixTunnel())
+  return {
+    ready,
+    fetch: async (input, init) => {
+      const m = await nym
+      await ready
+      const { signal: _signal, ...rest } = init ?? {}
+      return m.mixFetch(input, rest)
+    },
+    close: () => {
+      void nym.then((m) => m.disconnectMixTunnel()).catch(() => {})
+    },
+  }
+}
 
 /** `VITE_ANON=off` keeps every read on the direct engine path. Default: on. Read at call time. */
 export function isAnonEnabled(): boolean {
@@ -64,9 +90,15 @@ export function isBrowserVerifierEnabled(): boolean {
   return isAnonEnabled() && !['off', '0', 'false', 'no'].includes(value)
 }
 
-/** `VITE_ANON_PROVIDERS="label=https://url,label2=https://url2"`; empty means PublicNode. */
+/** `VITE_ANON_PROVIDERS="label=https://url,label2=https://url2"`; empty means the chain's defaults. */
 export function parseProviders(raw: string | undefined): PrivateProvider[] {
-  if (!raw || !raw.trim()) return DEFAULT_PROVIDERS
+  if (!raw || !raw.trim()) {
+    try {
+      return currentChain().providers
+    } catch {
+      return DEFAULT_PROVIDERS
+    }
+  }
   return raw
     .split(',')
     .map((entry) => entry.trim())
@@ -99,6 +131,7 @@ interface AnonSingleton {
   reader: { client: VeriqClient; reader: PrivateReader } | null
   listeners: Set<() => void>
   factory: WorkerFactory
+  nymFactory: NymFactory
 }
 
 // On globalThis, so a hot-reloaded copy of this module finds the worker that is already running.
@@ -107,7 +140,7 @@ const holder = globalThis as unknown as { [KEY]?: AnonSingleton }
 const defaultFactory: WorkerFactory = (init) => new AnonRpcWorker(init)
 
 function anon(): AnonSingleton {
-  holder[KEY] ??= { status: { state: 'idle' }, worker: null, starting: null, reader: null, listeners: new Set(), factory: defaultFactory }
+  holder[KEY] ??= { status: { state: 'idle' }, worker: null, starting: null, reader: null, listeners: new Set(), factory: defaultFactory, nymFactory: defaultNymFactory }
   return holder[KEY]
 }
 
@@ -146,16 +179,25 @@ export function startAnon(): Promise<void> {
   }
   const started = Date.now()
   setStatus({ state: 'connecting' })
+  const network = anonNetwork()
   let worker: AnonWorker
   try {
-    worker = s.factory({ address: NOX_SEPOLIA, preExisting: { rpcProvider: bootstrapProvider } } as ConstructorParameters<typeof AnonRpcWorker>[0])
+    // The network must carry the chain (Nox: Sepolia; Nym, Tor: mainnet), else nothing starts.
+    assertNetworkForChain(currentChain().chainId, network)
+    if (network === 'nox') {
+      worker = s.factory({ address: NOX_SEPOLIA, preExisting: { rpcProvider: bootstrapProvider } } as ConstructorParameters<typeof AnonRpcWorker>[0])
+    } else if (network === 'nym') {
+      worker = s.nymFactory()
+    } else {
+      throw new Error(`${network} has no browser fetch (Tor needs a SOCKS proxy, which a web page cannot open); use nym in the browser, or ${network} from Node with the SDK`)
+    }
   } catch (err) {
     return fail(err)
   }
   s.worker = worker
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Nox did not become ready within ${START_TIMEOUT_MS / 1000} s`)), START_TIMEOUT_MS)
+    timer = setTimeout(() => reject(new Error(`${network} did not become ready within ${START_TIMEOUT_MS / 1000} s`)), START_TIMEOUT_MS)
   })
   s.starting = Promise.race([worker.ready, timeout]).then(
     () => {
@@ -184,7 +226,7 @@ export function startAnon(): Promise<void> {
     }
     s.worker = null
     const reason = err instanceof Error ? err.message : String(err)
-    const error = new AnonUnavailableError(`Could not join the Nox mixnet: ${reason}`, { cause: err })
+    const error = new AnonUnavailableError(`Could not start private reads over ${anonNetwork()}: ${reason}`, { cause: err })
     setStatus({ state: 'failed', error })
     return error
   }
@@ -205,7 +247,9 @@ export async function getPrivateReader(client: VeriqClient): Promise<PrivateRead
   if (s.reader?.client === client) return s.reader.reader
   const reader = createPrivateReader(client, {
     fetch: fetchThroughNox,
-    network: ANON_NETWORK,
+    network: anonNetwork(),
+    // S6: refuses a network that does not carry this chain, and an engine on another chain.
+    chainId: currentChain().chainId,
     providers: parseProviders(import.meta.env.VITE_ANON_PROVIDERS),
     // S4.2: when Helios in this tab is synced, its finalized block is the one read, and the
     // engine's root must be that same block (else ROOT_MISMATCH).
@@ -225,12 +269,12 @@ export function transportLabel(privacy: { transport: string; mechanism?: string 
 }
 
 /** Tests only: use a fake worker factory and forget any running worker. */
-export function resetAnonForTests(factory: WorkerFactory = defaultFactory) {
+export function resetAnonForTests(factory: WorkerFactory = defaultFactory, nymFactory: NymFactory = defaultNymFactory) {
   const s = anon()
   try {
     s.worker?.close()
   } catch {
     // ignore
   }
-  holder[KEY] = { status: { state: 'idle' }, worker: null, starting: null, reader: null, listeners: s.listeners, factory }
+  holder[KEY] = { status: { state: 'idle' }, worker: null, starting: null, reader: null, listeners: s.listeners, factory, nymFactory }
 }

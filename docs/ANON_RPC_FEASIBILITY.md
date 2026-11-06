@@ -13,6 +13,7 @@ on failure, the exact error.
 | M0.3 gzip through Nox | **PASS** (2026-11-05, origin sees gzip; browser decompresses before app) |
 | M0.4 Rust verifier in WebAssembly | **PASS** (2026-11-05, 202,759-byte wasm verifies the EOA fixture and rejects a tampered proof) |
 | S4 Helios in the browser, synced over Nox | **PASS** (2026-11-06, Lodestar + PublicNode through Nox; see [S4](#s4--helios-in-the-browser-over-nox)) |
+| S6 Nym `mixFetch` on mainnet | **PASS, flaky** (2026-11-06, see [S6](#s6--nym-mixfetch-on-mainnet)) |
 
 ## M0.0 — Test page skeleton
 
@@ -257,3 +258,34 @@ replay also passes with the clock 30 days later, so the fixture does not age out
 
 **Decision:** S4 is kept with no traffic split: beacon and execution requests of browser Helios
 both go through Nox. The engine's root is the cross-check (S4.2), not the bootstrap.
+
+## S6 — Nym mixFetch on mainnet
+
+Page `spikes/anon-rpc/nym.html` (Headless Chrome 156, macOS), `@nymproject/mix-fetch@3.0.1` (the
+smolmix backend; a single ESM module, 18.2 MB / 6.4 MB gzip with the wasm and worker inlined;
+browser-only, no Node build yet). Exits are Nym IPRs, so browser CORS does not apply.
+
+**Run 1, 2026-11-06 ~15:30Z: PASS.** Tunnel ready 9.6 s (module load 0.2 s).
+
+| Check | Through Nym |
+|---|---|
+| `eth_chainId` (first request to each host) | PublicNode 7.3 s, dRPC 15.8 s, BlastAPI 8.3 s: all `0x1` |
+| `eth_getProof` at `finalized` | PublicNode 4.4 s, dRPC 1.6 s, BlastAPI 2.5 s |
+| `eth_getProof` at `{ blockHash }` | PublicNode 1.9 s, dRPC 1.0 s, BlastAPI 1.3 s |
+| Beacon `light_client/finality_update` | Lodestar mainnet 7.2 s, PublicNode beacon 8.4 s |
+| checkpointz `sync-mainnet.beaconcha.in` | 8.2 s, 3 upstreams |
+| Warm `eth_getProof` | 1.4 s |
+
+**Reliability finding (later runs, ~16:00Z):** of three fresh tunnels, one never became ready
+(`operation timed out`), one became ready but timed out every request after 24 s, and one worked
+as above. Like Nox's tunnel budget, the dashboard needs a "recreate the tunnel after repeated
+timeouts" path before Nym is demo-safe; until then a failed tunnel shows as failed reads (never a
+direct read).
+
+Keyless mainnet providers checked directly for finalized `eth_getProof`: PublicNode, dRPC,
+BlastAPI OK; Cloudflare `-32046`; Ankr needs a key; 1rpc / LlamaRPC no JSON answer. Mainnet beacon
+APIs with light-client endpoints and current bootstraps: Lodestar, PublicNode
+(`lightclientdata.org` 503).
+
+**Decision:** mainnet private reads in the browser go through Nym. Tor stays an allowed network
+name for mainnet (bring your own fetch from Node); the dashboard reports it as unavailable.

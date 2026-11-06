@@ -18,14 +18,23 @@
 import { useSyncExternalStore } from 'react'
 import type { BrowserLightClient, BrowserRoot } from 'veriq-client'
 import { getAnonFetch, isAnonEnabled, parseProviders } from './anon'
+import { CHAINS, currentChain, type ChainName } from './chain'
 
-/** Keyless Sepolia beacon API with light-client endpoints, reachable through Nox (TLS accepted). */
-export const DEFAULT_CONSENSUS = 'https://lodestar-sepolia.chainsafe.io'
-/** checkpointz: the current finalized checkpoint, from a different operator than the beacon API. */
-export const DEFAULT_CHECKPOINT_SOURCE = 'https://checkpoint-sync.sepolia.ethpandaops.io'
+/** Sepolia's keyless beacon API with light-client endpoints, reachable through Nox. Per chain: lib/chain.ts. */
+export const DEFAULT_CONSENSUS = CHAINS.sepolia.helios.consensus
+/** Sepolia's checkpointz: the current finalized checkpoint, from a different operator than the beacon API. */
+export const DEFAULT_CHECKPOINT_SOURCE = CHAINS.sepolia.helios.checkpointSource
 const CONSENSUS_HOST = 'consensus.helios.invalid'
 const EXECUTION_HOST = 'execution.helios.invalid'
-const STORAGE_KEY = 'veriq.browserHelios.v1'
+/** Per chain: a checkpoint saved for one chain is never offered to another. */
+const storageKey = () => {
+  try {
+    const name = currentChain().name
+    return name === 'sepolia' ? 'veriq.browserHelios.v1' : `veriq.browserHelios.v1.${name}`
+  } catch {
+    return 'veriq.browserHelios.v1'
+  }
+}
 /** A stored checkpoint younger than this is tried before asking checkpointz (Lodestar serves only the current one). */
 const STORED_CHECKPOINT_MAX_AGE_MS = 5 * 60_000
 /** Same limit as the engine (crates/light-client MAX_FINALIZED_AGE_SECONDS): older is "not synced". */
@@ -59,7 +68,7 @@ export interface HeliosLike {
 export interface HeliosConfig {
   consensusRpc: string
   executionRpc: string
-  network: 'sepolia'
+  network: ChainName
   checkpoint: string
   dbType: 'config'
 }
@@ -137,7 +146,7 @@ interface Stored {
 
 function readStored(): Stored | null {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Stored | null
+    const raw = JSON.parse(localStorage.getItem(storageKey()) ?? 'null') as Stored | null
     return raw && HASH_RE.test(raw.checkpoint) && typeof raw.savedAt === 'number' ? raw : null
   } catch {
     return null
@@ -146,7 +155,7 @@ function readStored(): Stored | null {
 
 function writeStored(checkpoint: string) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ checkpoint, savedAt: Date.now() } satisfies Stored))
+    localStorage.setItem(storageKey(), JSON.stringify({ checkpoint, savedAt: Date.now() } satisfies Stored))
   } catch {
     // storage full or blocked: the next start asks checkpointz
   }
@@ -243,8 +252,10 @@ export function startBrowserLightClient(): Promise<void> {
     setStatus({ state: 'waiting' })
     const viaNox = await getAnonFetch() // Nox failed → this throws, Helios never starts
     const env = import.meta.env
-    const consensus = httpsOrigin(env.VITE_HELIOS_CONSENSUS_RPC, DEFAULT_CONSENSUS)
-    const checkpointSource = httpsOrigin(env.VITE_HELIOS_CHECKPOINT_SOURCE, DEFAULT_CHECKPOINT_SOURCE)
+    // S6: the chain picks the beacon API, checkpointz and Helios network (Sepolia or mainnet).
+    const chain = currentChain().helios
+    const consensus = httpsOrigin(env.VITE_HELIOS_CONSENSUS_RPC, chain.consensus)
+    const checkpointSource = httpsOrigin(env.VITE_HELIOS_CHECKPOINT_SOURCE, chain.checkpointSource)
     const execution = parseProviders(env.VITE_ANON_PROVIDERS)[0]?.url
     if (!execution) throw new Error('no execution provider configured for Helios (VITE_ANON_PROVIDERS)')
     installFetch({ [CONSENSUS_HOST]: consensus, [EXECUTION_HOST]: execution }, viaNox)
@@ -277,7 +288,7 @@ export function startBrowserLightClient(): Promise<void> {
         helios = await s.factory({
           consensusRpc: `https://${CONSENSUS_HOST}`,
           executionRpc: `https://${EXECUTION_HOST}`,
-          network: 'sepolia',
+          network: chain.network,
           checkpoint,
           dbType: 'config',
         })

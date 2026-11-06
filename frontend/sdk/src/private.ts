@@ -19,10 +19,13 @@ import { assertAddress, assertSlot, attemptsFromReceipt } from './client'
 import {
   ERROR_CODES,
   AllProvidersFailedError,
+  CLIENT_CODES,
+  ChainMismatchError,
   EngineUnreachableError,
   InternalError,
   InvalidProofError,
   InvalidRequestError,
+  PrivacyUnavailableError,
   RootMismatchError,
   RootUnavailableError,
   VeriqError,
@@ -75,6 +78,37 @@ export interface PrivateReaderOptions {
    * `identity.requestId` starting `local-`), which the engine never stored.
    */
   verifier?: BrowserVerifier | (() => Promise<BrowserVerifier>)
+  /**
+   * S6: the chain this reader reads (1 mainnet, 11155111 Sepolia). When set, `network` must be
+   * one that serves it ({@link PRIVATE_NETWORKS}: Nox on Sepolia, Nym or Tor on mainnet),
+   * else createPrivateReader throws PrivacyUnavailableError; and an engine whose
+   * `veriq_getRoot` names another chain fails the read with ChainMismatchError.
+   */
+  chainId?: number
+}
+
+/**
+ * Which anonymizing networks may carry private reads for a chain. The network follows the
+ * chain; a reader never falls back to another one (or to a direct request).
+ */
+export const PRIVATE_NETWORKS: Readonly<Record<number, readonly string[]>> = {
+  1: ['nym', 'tor'],
+  11155111: ['nox'],
+}
+
+/** Throws PrivacyUnavailableError unless `network` serves `chainId`. */
+export function assertNetworkForChain(chainId: number, network: string): void {
+  const allowed = PRIVATE_NETWORKS[chainId]
+  if (!allowed) {
+    throw new PrivacyUnavailableError(ERROR_CODES.PRIVACY_UNAVAILABLE, `no private network is known for chain ${chainId}`)
+  }
+  if (!allowed.includes(network)) {
+    throw new PrivacyUnavailableError(
+      ERROR_CODES.PRIVACY_UNAVAILABLE,
+      `"${network}" does not carry chain ${chainId}; use ${allowed.map((n) => `"${n}"`).join(' or ')}`,
+      { hint: 'The private network follows the chain: Nox on Sepolia, Nym or Tor on mainnet. Nothing was sent.' },
+    )
+  }
 }
 
 /** A light client running in the browser that reports its latest finalized block. */
@@ -201,6 +235,7 @@ function rootMoved(err: unknown): boolean {
 
 export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOptions): PrivateReader {
   validateOptions(opts)
+  if (opts.chainId !== undefined) assertNetworkForChain(opts.chainId, opts.network)
   const timeoutMs = opts.timeoutMs ?? 30_000
   const providers = opts.providers.map((p) => ({ ...p }))
   const secrets = secretsOf(providers)
@@ -217,6 +252,20 @@ export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOpti
     if (!root) return null
     if (!Number.isSafeInteger(root.number) || !HASH_RE.test(root.hash) || !HASH_RE.test(root.stateRoot)) return null
     return { number: root.number, hash: root.hash, stateRoot: root.stateRoot }
+  }
+
+  /** `veriq_getRoot`, refusing an engine on another chain than `opts.chainId`. */
+  async function engineRoot(): Promise<RootInfo> {
+    const root = await client.getRoot()
+    // Engines from before S6 do not say; they only ever served Sepolia.
+    const engineChain = root.chainId ?? 11155111
+    if (opts.chainId !== undefined && engineChain !== opts.chainId) {
+      throw new ChainMismatchError(
+        CLIENT_CODES.CHAIN_MISMATCH,
+        `the engine serves chain ${engineChain}, this reader reads chain ${opts.chainId}; nothing was read`,
+      )
+    }
+    return root
   }
 
   /** The browser verifier, loaded once; `null` with the reason if it did not load. */
@@ -242,11 +291,11 @@ export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOpti
    */
   async function pinRoot(canRunLocally: boolean): Promise<{ root: RootInfo; browser?: BrowserRoot; engineDown?: true }> {
     const lightClient = opts.lightClient
-    if (!lightClient) return { root: await client.getRoot() }
+    if (!lightClient) return { root: await engineRoot() }
     const deadline = Date.now() + alignTimeoutMs
     for (;;) {
       const [engine, browser] = await Promise.all([
-        client.getRoot().then(
+        engineRoot().then(
           (root) => ({ root }),
           (error: unknown) => ({ error }),
         ),
@@ -482,7 +531,13 @@ export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOpti
         requestBinding: verifier.binding(method, params),
         resultBinding: verifier.binding(method, value),
       },
-      block: { number: root.number, hash: root.hash, stateRoot: root.stateRoot, finalized: true },
+      block: {
+        number: root.number,
+        hash: root.hash,
+        stateRoot: root.stateRoot,
+        finalized: true,
+        ...(opts.chainId !== undefined ? { chainId: opts.chainId } : {}),
+      },
       verification: {
         status: 'verified',
         rootSource: 'local-light-client',

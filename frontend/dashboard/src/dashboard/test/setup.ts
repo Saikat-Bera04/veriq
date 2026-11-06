@@ -28,6 +28,10 @@ beforeEach(() => {
   vi.stubEnv('VITE_BROWSER_LIGHT_CLIENT', 'off')
   vi.stubEnv('VITE_BROWSER_VERIFIER', 'off')
   localStorage.removeItem('veriq.browserHelios.v1')
+  localStorage.removeItem('veriq.browserHelios.v1.mainnet')
+  // S6: tests read Sepolia unless they switch.
+  vi.stubEnv('VITE_CHAIN', 'sepolia')
+  vi.stubEnv('VITE_ANON_NETWORK', '')
 })
 
 afterEach(() => {

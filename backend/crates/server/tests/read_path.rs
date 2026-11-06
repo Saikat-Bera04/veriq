@@ -986,7 +986,7 @@ async fn get_root_names_the_block_a_client_must_fetch_at() {
     assert_eq!(result["stateRoot"], format!("{state_root:#x}"));
     assert_eq!(result["verified"], true);
 
-    // Exactly these five fields, with these JSON types.
+    // Exactly these six fields, with these JSON types (`chainId` added in S6).
     let mut keys: Vec<&str> = result
         .as_object()
         .expect("object")
@@ -996,7 +996,14 @@ async fn get_root_names_the_block_a_client_must_fetch_at() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        ["hash", "number", "rootSource", "stateRoot", "verified"]
+        [
+            "chainId",
+            "hash",
+            "number",
+            "rootSource",
+            "stateRoot",
+            "verified"
+        ]
     );
     assert!(result["number"].is_u64(), "number is a JSON number: {got}");
     assert!(result["rootSource"].is_string());
@@ -1511,4 +1518,55 @@ async fn an_unavailable_browser_verifier_is_a_receipt_warning() {
     input["verifier"] = json!("yes please");
     let got = dispatch(&engine, verify_request(input, None)).await;
     assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{got}");
+}
+
+// ---- S6: one engine, one chain ----------------------------------------------------------
+
+#[tokio::test]
+async fn a_sepolia_engine_stamps_its_chain_id_on_receipts_and_the_root() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert_eq!(
+        got["result"]["receipt"]["block"]["chainId"], 11_155_111,
+        "{got}"
+    );
+    let root = dispatch(&engine, get_root_request()).await;
+    assert_eq!(root["result"]["chainId"], 11_155_111, "{root}");
+    let chain = dispatch(
+        &engine,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "eth_chainId", "params": []}),
+    )
+    .await;
+    assert_eq!(chain["result"], "0xaa36a7");
+}
+
+#[tokio::test]
+async fn a_mainnet_engine_with_a_fixture_root_verifies_and_says_chain_1() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone()).with_network(veriq_core::Network::Mainnet);
+    let read = engine
+        .read_balance(request("eth_getBalance", json!([])), TARGET)
+        .await
+        .expect("fixture root verifies on mainnet too");
+    assert_eq!(read.receipt.block.chain_id, Some(1));
+
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert_eq!(got["result"]["receipt"]["block"]["chainId"], 1, "{got}");
+    let root = dispatch(&engine, get_root_request()).await;
+    assert_eq!(root["result"]["chainId"], 1, "{root}");
+    let chain = dispatch(
+        &engine,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "eth_chainId", "params": []}),
+    )
+    .await;
+    assert_eq!(chain["result"], "0x1");
 }

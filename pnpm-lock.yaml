@@ -38,6 +38,9 @@ importers:
       '@anon-rpc/browser-harness':
         specifier: 0.4.0
         version: 0.4.0
+      '@nymproject/mix-fetch':
+        specifier: 3.0.1
+        version: 3.0.1
       '@tanstack/react-query':
         specifier: ^5.59.20
         version: 5.105.0(@types/react@18.3.31)(react@18.3.1)
@@ -937,6 +940,12 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@nymproject/mix-fetch@3.0.1':
+    resolution: {integrity: sha512-5RhL+Yxm3W1ZSfkI9szfOpkKMCD0r1cs3hDJumIlejDZVa4c7gE5Wk+SI4xKo/uP1sBTXZAFk/ekNBCDzzrizA==}
+
+  '@nymproject/mix-tunnel@0.3.1':
+    resolution: {integrity: sha512-6s7CJKCnweDLy7xqOwO/Sk8oTnAnTvmDqXpdoUsaY5BWsSYs5mRoJfiYyNaDUssOMS2V/980jgG8hGFFFKs73w==}
 
   '@prisma/adapter-pg@7.10.1':
     resolution: {integrity: sha512-EP9ruPYHjKP80WZlb5qVaEXKgZjJieBFjAxcBtQnDAHD6+16UN4keVmBh6L/RUpuDQT2FQRbvKNgq5d4Ix+IkQ==}
@@ -3182,6 +3191,12 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
+
+  '@nymproject/mix-fetch@3.0.1':
+    dependencies:
+      '@nymproject/mix-tunnel': 0.3.1
+
+  '@nymproject/mix-tunnel@0.3.1': {}
 
   '@prisma/adapter-pg@7.10.1':
     dependencies:
