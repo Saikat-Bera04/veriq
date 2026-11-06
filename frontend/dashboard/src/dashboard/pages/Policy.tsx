@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { VeriqError, verifiedFinalized, type Policy } from 'veriq-client'
 import { readBalance, type ReadOutcome } from '../lib/engine'
+import { ANON_NETWORK, isAnonEnabled, transportLabel } from '../lib/anon'
 import { DEMO_ADDRESS } from '../lib/mock'
 import { formatEth } from '../lib/format'
 import { AttemptsTimeline } from '../components/ReceiptDrawer'
@@ -43,6 +44,7 @@ function Result({ outcome }: { outcome: ReadOutcome }) {
         <Chip tone="dark">block #{receipt.block.number.toLocaleString('en-US')} {receipt.block.finalized ? '· finalized' : '· not finalized'}</Chip>
         <Chip tone="dark">{receipt.verification.rootSource}</Chip>
         <Chip tone="dark">comparison: {receipt.routing.comparison}</Chip>
+        <Chip tone="dark">via {transportLabel(receipt.privacy)}</Chip>
       </div>
       {receipt.warnings.length > 0 && (
         <ul className="mt-4 space-y-1 text-sm">
@@ -161,7 +163,26 @@ export function PolicyPage() {
         <Card>
           <CardTitle>Sent to the engine</CardTitle>
           <pre className="text-xs font-mono bg-vq-bg border border-vq-border rounded-xl p-4 overflow-auto">
-            {JSON.stringify({ method: 'veriq_readBalance', params: [address.trim(), policy] }, null, 2)}
+            {JSON.stringify(
+              isAnonEnabled()
+                ? {
+                    method: 'veriq_verifyProof',
+                    params: [
+                      {
+                        kind: 'balance',
+                        address: address.trim(),
+                        blockHash: '<from veriq_getRoot>',
+                        proof: `<eth_getProof, fetched through ${ANON_NETWORK}>`,
+                        provider: '<provider label>',
+                        network: ANON_NETWORK,
+                      },
+                      policy,
+                    ],
+                  }
+                : { method: 'veriq_readBalance', params: [address.trim(), policy] },
+              null,
+              2,
+            )}
           </pre>
         </Card>
       </div>

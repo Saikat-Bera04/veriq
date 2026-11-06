@@ -39,6 +39,24 @@ const client = createPublicClient({
 
 const balance = await client.getBalance({ address: '0x…', blockTag: 'finalized' })`,
   },
+  {
+    title: 'Private reads through Anon-RPC (Nox)',
+    lang: 'ts',
+    code: `import { AnonRpcWorker } from '@anon-rpc/browser-harness'
+import { createPrivateReader } from 'veriq-client'
+
+const nox = new AnonRpcWorker({ address: NOX_SEPOLIA, preExisting: { rpcProvider } })
+const reader = createPrivateReader(veriq, {
+  fetch: nox.fetch,   // providers see the mixnet's exit, not you
+  network: 'nox',
+  providers: [{ label: 'publicnode', url: 'https://ethereum-sepolia-rpc.publicnode.com' }],
+})
+
+// readBalance · readNonce · readStorage · readCode
+const { value, receipt } = await reader.readBalance({ address: '0x…' })
+receipt.privacy           // { transport: 'anon-rpc', mechanism: 'nox' }
+receipt.routing.providerLabel // 'publicnode@anon-rpc:nox'`,
+  },
 ]
 
 function CodeBlock({ title, code }: { title: string; code: string }) {
