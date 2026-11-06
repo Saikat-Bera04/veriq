@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { ERROR_MEANINGS } from 'veriq-client'
 import { PolicyPage } from './Policy'
-import { renderPage, serve, verifiedRead } from '../test/services'
+import { anonEngine, fakeNox, renderPage, serve, verifiedRead } from '../test/services'
 
 describe('Policy page', () => {
   it('shows POLICY_UNSATISFIABLE as a typed error, with no value', async () => {
@@ -42,5 +42,21 @@ describe('Policy page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
     expect(await screen.findByText('Verified')).toBeTruthy()
+  })
+})
+
+describe('Policy page through Anon-RPC', () => {
+  it('runs readBalance through Nox and the timeline shows publicnode@anon-rpc:nox', async () => {
+    vi.stubEnv('VITE_ANON', 'on')
+    const calls = serve({ engineRpc: anonEngine() })
+    fakeNox()
+    renderPage(<PolicyPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    expect(await screen.findByText('via anon-rpc · nox')).toBeTruthy()
+    expect(screen.getAllByText(/publicnode@anon-rpc:nox/).length).toBeGreaterThan(0)
+    const methods = calls.filter((c) => c.url === '/engine').map((c) => (c.body as { method: string }).method)
+    expect(methods).toEqual(['veriq_getRoot', 'veriq_verifyProof'])
+    expect(screen.getByText(/"method": "veriq_verifyProof"/)).toBeTruthy()
   })
 })
