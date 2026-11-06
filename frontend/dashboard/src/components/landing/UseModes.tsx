@@ -21,8 +21,8 @@ interface Mode {
 
 // Existing landing media only, alternated across the deck.
 const MODES: Mode[] = [
-  { title: 'Wallets', body: 'Show users balances you can prove, not balances a provider claims.', media: { kind: 'video', src: USE_MODES_VIDEO, alt: '' } },
-  { title: 'dApps', body: 'Read contract storage through a viem transport and get a receipt with every value.', media: { kind: 'image', src: LAVENDER_IMAGE, alt: 'Lavender 3D render' } },
+  { title: 'Wallets & EIP-7702', body: 'Show users balances you can prove. Cryptographically detect and warn on malicious EIP-7702 delegation sweepers.', media: { kind: 'video', src: USE_MODES_VIDEO, alt: '' } },
+  { title: 'Private dApps', body: 'Read contract storage through Anon-RPC mixnets and get a verifiable Trust Receipt with every value without leaking IP.', media: { kind: 'image', src: LAVENDER_IMAGE, alt: 'Lavender 3D render' } },
   { title: 'Bots & keepers', body: "Act only on finalized, proven state; a bad RPC can't trick your bot into a trade.", media: { kind: 'video', src: HERO_VIDEO, alt: '' } },
   { title: 'Dashboards', body: 'Every number on screen carries the block, state root and provider that served it.', media: { kind: 'image', src: FOOTER_POSTER, alt: 'Lavender meadow at dusk' } },
 ]

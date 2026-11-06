@@ -90,7 +90,7 @@ export function serve(services: Services) {
     }
     if (url === '/attacker/mode' && method === 'GET') {
       const mode = answer((services.attackerMode ?? (() => 'unreachable'))())
-      return json({ mode, available: ['off', 'value', 'proof', 'wrongblock', 'outage', 'nonce', 'code'] })
+      return json({ mode, available: ['off', 'value', 'proof', 'wrongblock', 'outage', 'nonce', 'code', 'hidedelegation'] })
     }
     if (url === '/admin/reset-breakers' && method === 'POST') {
       const status = (services.resetBreakers ?? (() => 200))()

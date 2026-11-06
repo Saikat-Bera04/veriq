@@ -19,7 +19,7 @@ import {
 } from 'veriq-client'
 import { WEI_PER_ETH } from './format'
 
-export const ATTACK_MODES = ['off', 'value', 'proof', 'wrongblock', 'outage', 'nonce', 'code'] as const
+export const ATTACK_MODES = ['off', 'value', 'proof', 'wrongblock', 'outage', 'nonce', 'code', 'hidedelegation'] as const
 export type AttackMode = (typeof ATTACK_MODES)[number]
 
 export const DEMO_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
@@ -165,7 +165,8 @@ function attemptsForMode(mode: AttackMode, r: () => number, n: number): Attempt[
         honest,
       ]
     case 'code':
-      // Only eth_getCode is altered; a balance read from the attacker is honest and verifies.
+    case 'hidedelegation':
+      // Only eth_getCode is altered/hidden; a balance read from the attacker is honest and verifies.
       return [ok('attacker', 150 + Math.round(r() * 80))]
   }
 }
@@ -321,7 +322,8 @@ export async function mockPlainBalance(address: string): Promise<bigint> {
       throw new PlainRpcError('HTTP 503 Service Unavailable')
     case 'nonce':
     case 'code':
-      // These modes forge the nonce or the code, not eth_getBalance.
+    case 'hidedelegation':
+      // These modes forge the nonce, code, or delegation, not eth_getBalance.
       return honest
   }
 }

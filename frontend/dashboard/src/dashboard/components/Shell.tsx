@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { LogoIcon } from '@/components/landing/primitives'
+import { currentChain } from '../lib/chain'
 import { ENGINE_DISPLAY, getEngineDisplayAddress, useHealth } from '../lib/engine'
 import { isAnonEnabled, startAnon } from '../lib/anon'
 import { AnonBadge } from './AnonBadge'
@@ -173,7 +174,7 @@ function BottomTabs() {
       aria-label="Dashboard"
       className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-vq-surface/95 backdrop-blur border-t border-vq-border pb-[env(safe-area-inset-bottom)]"
     >
-      <ul className="grid grid-cols-7">
+      <ul className="grid grid-cols-8">
         {NAV.map(({ to, label, short, Icon }) => (
           <li key={to}>
             <NavLink
@@ -214,7 +215,8 @@ function TopBar({ title }: { title: string }) {
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
           <Chip>
-            <Globe className="w-3.5 h-3.5" aria-hidden="true" /> Sepolia
+            <Globe className="w-3.5 h-3.5" aria-hidden="true" />
+            <span className="capitalize">{currentChain().name}</span>
           </Chip>
           {root === 'local-light-client' && <Chip tone="ok" dot="live">Local light client</Chip>}
           {root === 'fixture' && <Chip tone="lav">Fixture root</Chip>}

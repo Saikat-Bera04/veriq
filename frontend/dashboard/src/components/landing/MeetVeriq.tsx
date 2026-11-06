@@ -10,6 +10,8 @@ const card: Variants = {
 const INFRA_BRANDS = [
   { name: 'Ethereum', style: { fontFamily: 'Times New Roman, serif', fontWeight: 400, letterSpacing: '0.02em', fontSize: '15px' } },
   { name: 'Helios', style: { fontFamily: 'Arial Black, sans-serif', fontWeight: 900, letterSpacing: '0.08em', fontSize: '15px', textTransform: 'uppercase' as const } },
+  { name: 'Nox', style: { fontFamily: 'Courier New, monospace', fontWeight: 700, letterSpacing: '0.08em', fontSize: '15px' } },
+  { name: 'Nym', style: { fontFamily: 'Trebuchet MS, sans-serif', fontWeight: 800, letterSpacing: '0.05em', fontSize: '15px' } },
   { name: 'alloy', style: { fontFamily: 'Georgia, serif', fontWeight: 600, letterSpacing: '-0.02em', fontSize: '16px' } },
   { name: 'axum', style: { fontFamily: 'Courier New, monospace', fontWeight: 700, letterSpacing: '0.12em', fontSize: '14px' } },
   { name: 'viem', style: { fontFamily: 'Helvetica, Arial, sans-serif', fontWeight: 700, letterSpacing: '-0.01em', fontSize: '15px' } },

@@ -8,6 +8,8 @@ import { Container, EASE_OUT, Marquee, PillLink, SCROLL_SPRING } from './primiti
 const HERO_TOOLS = [
   { name: 'Ethereum', style: { fontFamily: 'Georgia, serif', fontWeight: 700, letterSpacing: '-0.02em', fontSize: '15px' } },
   { name: 'Helios', style: { fontFamily: 'Arial, sans-serif', fontWeight: 900, letterSpacing: '0.08em', fontSize: '13px', textTransform: 'uppercase' as const } },
+  { name: 'EIP-7702', style: { fontFamily: 'Arial, sans-serif', fontWeight: 800, letterSpacing: '0.04em', fontSize: '14px' } },
+  { name: 'Anon-RPC', style: { fontFamily: 'Courier New, monospace', fontWeight: 700, letterSpacing: '0.06em', fontSize: '14px' } },
   { name: 'Rust', style: { fontFamily: 'Trebuchet MS, sans-serif', fontWeight: 600, letterSpacing: '0.01em', fontSize: '15px', fontStyle: 'italic' as const } },
   { name: 'viem', style: { fontFamily: 'Courier New, monospace', fontWeight: 700, letterSpacing: '0.12em', fontSize: '13px', textTransform: 'uppercase' as const } },
 ]

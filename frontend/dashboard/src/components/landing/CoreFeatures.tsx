@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Bug, Check, Code, Lock, Radio, Receipt, Route, ShieldCheck } from 'lucide-react'
+import { Bug, Check, Code, Lock, Radio, Receipt, Route, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { BentoGrid, BentoGridItem } from '@/components/ui/bento-grid'
 import { cn } from '@/lib/utils'
 import { Container, Section, SectionHeading } from './primitives'
@@ -220,6 +220,18 @@ const items = [
     ),
     header: <Skeleton><Snippet /></Skeleton>,
     icon: <Code className={iconCls} />,
+  },
+  {
+    title: 'Anon-RPC Private Mixnet',
+    description: 'Reads route through Nox on Sepolia and Nym on Mainnet. Providers see the mixnet exit, never your IP address or wallet relationship.',
+    header: <Skeleton><Lock className="w-10 h-10 text-vq-lav-700" /></Skeleton>,
+    icon: <Radio className={iconCls} />,
+  },
+  {
+    title: 'EIP-7702 Delegation Guard',
+    description: 'Cryptographically detects 0xef0100 delegation designators to protect accounts from hidden sweeper traps and unauthorized code delegation.',
+    header: <Skeleton><ShieldAlert className="w-10 h-10 text-amber-600" /></Skeleton>,
+    icon: <ShieldAlert className={iconCls} />,
   },
   {
     title: 'Attack lab built in',

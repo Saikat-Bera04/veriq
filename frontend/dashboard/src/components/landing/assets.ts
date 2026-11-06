@@ -16,5 +16,5 @@ export const FOOTER_VIDEO =
 export const FOOTER_POSTER =
   'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20261014_121838_c97d0940-f430-4304-8573-4f47ee44f447.png'
 
-export const GITHUB_URL = 'https://github.com/Detective-HQ/Eth-G'
-export const DOCS_URL = 'https://github.com/Detective-HQ/Eth-G#readme'
+export const GITHUB_URL = 'https://github.com/Saikat-Bera04/veriq'
+export const DOCS_URL = 'https://github.com/Saikat-Bera04/veriq#readme'

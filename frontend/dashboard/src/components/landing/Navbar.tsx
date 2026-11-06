@@ -7,6 +7,7 @@ import { Container, LogoIcon, focusRing } from './primitives'
 const LINKS = [
   { label: 'How it works', href: '#how-it-works' },
   { label: 'SDK', href: '#core-features' },
+  { label: 'Delegation Guard', href: '/app/delegation-guard' },
   { label: 'Attack lab', href: '/app/attack-lab' },
   { label: 'Docs', href: '#stack' },
   { label: 'GitHub', href: GITHUB_URL },

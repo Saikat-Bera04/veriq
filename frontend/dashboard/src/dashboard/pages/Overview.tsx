@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, Gauge, Layers, Server, ShieldX } from 'lucide-react'
+import { ArrowUpRight, Gauge, Layers, Server, ShieldAlert, ShieldX } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ReceiptRecord } from 'veriq-client'
 import { errorNameForCode } from 'veriq-client'
@@ -182,6 +182,32 @@ export function OverviewPage() {
               </p>
             )}
           </div>
+        </div>
+      </Card>
+
+      <Card className="xl:col-span-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/30">
+                <ShieldAlert className="w-3.5 h-3.5" />
+                EIP-7702 Guard
+              </span>
+              <span className="text-xs text-vq-muted">Pectra Delegation Security</span>
+            </div>
+            <h3 className="text-lg font-medium text-vq-ink">
+              Live Wallet Delegation Inspection
+            </h3>
+            <p className="text-sm text-vq-muted max-w-2xl">
+              Detect active delegation designators (<code className="text-xs font-mono bg-vq-surface px-1 py-0.5 rounded border border-vq-border">0xef0100 || address</code>) with state proof verification. Stop malicious RPCs from hiding swept EOAs or hijacked smart wallets.
+            </p>
+          </div>
+          <Link
+            to="/app/delegation-guard"
+            className="vq-focus inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-vq-black text-white text-sm font-medium hover:bg-black/80 transition-colors shrink-0"
+          >
+            Launch Guard <ArrowUpRight className="w-4 h-4" />
+          </Link>
         </div>
       </Card>
 

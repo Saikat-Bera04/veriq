@@ -3,7 +3,7 @@ import { BookOpen, Check, Copy } from 'lucide-react'
 import { ERROR_CODES, ERROR_HINTS, ERROR_MEANINGS, type EngineErrorName } from 'veriq-client'
 import { Card, CardTitle, HeroPanel, PrimaryLink, Stagger } from '../components/ui'
 
-const DOCS_URL = 'https://github.com/Detective-HQ/Eth-G#readme'
+const DOCS_URL = 'https://github.com/Saikat-Bera04/veriq#readme'
 
 const SNIPPETS: { title: string; lang: string; code: string }[] = [
   { title: 'Install', lang: 'bash', code: 'pnpm add veriq-client' },
@@ -38,6 +38,21 @@ const client = createPublicClient({
 })
 
 const balance = await client.getBalance({ address: '0x…', blockTag: 'finalized' })`,
+  },
+  {
+    title: 'EIP-7702 Delegation Guard',
+    lang: 'ts',
+    code: `// Verify EIP-7702 delegation status against light-client state root
+const result = await veriq.getDelegation({ address: '0x…' })
+
+if (result.isDelegated) {
+  console.warn('Delegation active!', result.delegateAddress)
+  console.log('Delegate code hash:', result.delegateCodeHash)
+} else if (result.securityClassification === 'delegation-revoked') {
+  console.log('Delegation cleared (0xef0100 + zero address)')
+} else {
+  console.log('Standard un-delegated EOA')
+}`,
   },
   {
     title: 'Private reads through Anon-RPC (Nox)',

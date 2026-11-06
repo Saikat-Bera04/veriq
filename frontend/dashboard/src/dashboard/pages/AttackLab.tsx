@@ -28,6 +28,7 @@ const MODE_INFO: Record<AttackMode, string> = {
   outage: 'Answers every request with HTTP 503.',
   nonce: 'Claims one more transaction (nonce) than the proof shows.',
   code: 'Returns altered contract code; balance reads stay honest.',
+  hidedelegation: 'Returns empty 0x code for delegated accounts to hide EIP-7702 sweepers.',
 }
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
