@@ -13,10 +13,23 @@ import {
   ReceiptRecordSchema,
   RootInfoSchema,
   TrustReceiptSchema,
+  DelegationResultSchema,
   formatIssues,
 } from './schema'
 import { createTransport, type VeriqTransport, type VeriqTransportOptions } from './transport'
-import type { Address, Attempt, Capabilities, EngineHealth, Hex, Policy, ProviderHealth, ReceiptRecord, TrustReceipt, VerifiedResult } from './types'
+import type {
+  Address,
+  Attempt,
+  Capabilities,
+  EngineHealth,
+  Hex,
+  Policy,
+  ProviderHealth,
+  ReceiptRecord,
+  TrustReceipt,
+  VerifiedResult,
+  DelegationResult,
+} from './types'
 
 /** Default engine URL. The engine only binds to localhost. */
 export const DEFAULT_ENGINE_URL = 'http://127.0.0.1:8547'
@@ -53,6 +66,11 @@ export interface VeriqClient {
    * @example const { value } = await veriq.readStorage({ address, slot: '0x0' })
    */
   readStorage(args: { address: string; slot: string } & ReadOptions): Promise<VerifiedResult<Hex>>
+  /**
+   * Proven EIP-7702 delegation detection result and Trust Receipt.
+   * @example const res = await veriq.getDelegation({ address: '0x…' })
+   */
+  getDelegation(args: { address: string } & ReadOptions): Promise<DelegationResult>
   /**
    * A stored Trust Receipt by request id (veriq_getReceipt).
    * @example const receipt = await veriq.getReceipt(result.receipt.identity.requestId)
@@ -238,6 +256,12 @@ export function createVeriq(options: VeriqOptions = {}): VeriqClient {
       const r = await read('veriq_readStorage', [address, slot], p, signal)
       const value = `0x${BigInt(r.value).toString(16).padStart(64, '0')}` as Hex
       return { value, receipt: r.receipt, verified: r.receipt.verification.status === 'verified', attempts: r.attempts }
+    },
+    async getDelegation({ address, policy: p = policy, signal }) {
+      assertAddress(address)
+      assertPolicy(p)
+      const raw = await rpcCall(ctx, 'veriq_getDelegation', [address, p], { timeoutMs: readTimeout(p), ...(signal ? { signal } : {}) })
+      return parseWith(DelegationResultSchema, raw, 'delegation')
     },
     async getReceipt(id) {
       const raw = await rpcCall(ctx, 'veriq_getReceipt', [id], shortTimeout)

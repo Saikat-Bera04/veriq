@@ -7,10 +7,11 @@ use alloy_primitives::{hex, Address, Bytes, B256, U256};
 use serde::Serialize;
 use serde_json::{json, Value};
 use veriq_core::{
-    binding, AttemptOutcome, Block, BlockPolicy, Bootstrap, Comparison, Consistency, ErrorCode,
-    Identity, Mechanism, Network, Policy, Privacy, PrivacyPolicy, Receipt, RootSourceKind, Routing,
-    RoutingAttempt, Transport, Verification, VerificationStatus, VerifierLocation, VeriqError,
-    Warning,
+    binding, classify_account_code, AttemptOutcome, Block, BlockPolicy, Bootstrap, Comparison,
+    Consistency, DelegationDetectionResult, DelegationSecurityClassification, DelegationStatus,
+    ErrorCode, Identity, Mechanism, Network, Policy, Privacy, PrivacyPolicy, Receipt,
+    RootSourceKind, Routing, RoutingAttempt, Transport, Verification, VerificationStatus,
+    VerifierLocation, VeriqError, Warning,
 };
 use veriq_light_client::{PinnedRoot, RootSource, RootSourceProvider};
 use veriq_router::breaker::{CircuitBreaker, CooldownReason};
@@ -67,6 +68,29 @@ pub struct ReadResult {
 pub struct CodeRead {
     pub code: Bytes,
     pub receipt: Receipt,
+}
+
+#[derive(Debug, Clone)]
+pub struct DelegationRead {
+    pub result: DelegationDetectionResult,
+    pub receipt: Receipt,
+}
+
+impl DelegationRead {
+    pub fn into_value(self) -> Value {
+        let block_number = self.receipt.block.number;
+        let verified = self.receipt.verification.status == VerificationStatus::Verified;
+        let mut val = serde_json::to_value(&self.result).unwrap_or(Value::Null);
+        if let Value::Object(ref mut map) = val {
+            map.insert("blockNumber".to_string(), json!(block_number));
+            map.insert("verified".to_string(), json!(verified));
+            map.insert(
+                "receipt".to_string(),
+                serde_json::to_value(&self.receipt).unwrap_or(Value::Null),
+            );
+        }
+        val
+    }
 }
 
 /// Receipt warning code: the root was cross-checked with a light client in the browser.
@@ -603,6 +627,58 @@ impl Engine {
             ReadValue::Word(_) => Bytes::new(),
         };
         Ok(CodeRead { code, receipt })
+    }
+
+    pub async fn read_delegation(
+        &self,
+        request: RequestMeta,
+        address: Address,
+        policy: Option<Policy>,
+    ) -> Result<DelegationRead, VeriqError> {
+        let policy = policy.unwrap_or_default();
+        let (value, mut receipt) = self
+            .route(&request, &policy, address, ReadKind::Code)
+            .await?;
+        let code = match value {
+            ReadValue::Code(code) => code,
+            ReadValue::Word(_) => Bytes::new(),
+        };
+        let status = classify_account_code(&code);
+        let is_delegated = status.is_delegated();
+        let delegate_address = status.delegate_address();
+        let code_hash = alloy_primitives::keccak256(&code);
+
+        let security_classification = match &status {
+            DelegationStatus::NormalEoa => DelegationSecurityClassification::NormalEoa,
+            DelegationStatus::Delegated(del) => {
+                receipt.warnings.push(Warning::delegation(*del));
+                DelegationSecurityClassification::DelegationDetected
+            }
+            DelegationStatus::Revoked => {
+                receipt.warnings.push(Warning::delegation_revoked());
+                DelegationSecurityClassification::DelegationRevoked
+            }
+            DelegationStatus::Contract => DelegationSecurityClassification::SmartContract,
+            DelegationStatus::InvalidDesignator => {
+                receipt.warnings.push(Warning::new(
+                    "EIP7702_INVALID_DESIGNATOR",
+                    "Account code begins with 0xef0100 but has invalid length or malformed encoding",
+                ));
+                DelegationSecurityClassification::PotentialRisk
+            }
+        };
+
+        let result = DelegationDetectionResult {
+            address,
+            status,
+            is_delegated,
+            delegate_address,
+            code_hash,
+            delegate_code_hash: None,
+            security_classification,
+        };
+
+        Ok(DelegationRead { result, receipt })
     }
 
     pub async fn read_storage(

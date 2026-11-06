@@ -13,17 +13,45 @@ use veriq_light_client::RootSource;
 
 use crate::{engine::Engine, rpc, store::valid_receipt_id};
 
-/// The only browser origin allowed to call the engine directly (the dashboard dev server).
+/// The default browser origin allowed to call the engine directly (the dashboard dev server).
 pub const ALLOWED_ORIGIN: &str = "http://localhost:3000";
 pub const DEFAULT_RECEIPT_LIMIT: usize = 50;
 /// Receipt listing is bounded to 500 rows per response.
 pub const MAX_RECEIPT_LIMIT: usize = 500;
 
+/// Collect allowed origins from `VERIQ_ALLOWED_ORIGINS` (comma-separated list), falling back
+/// to local dashboard development servers.
+pub fn allowed_origins() -> Vec<HeaderValue> {
+    if let Ok(origins) = std::env::var("VERIQ_ALLOWED_ORIGINS") {
+        let parsed: Vec<HeaderValue> = origins
+            .split(',')
+            .filter_map(|s| {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    HeaderValue::from_str(trimmed).ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !parsed.is_empty() {
+            return parsed;
+        }
+    }
+    vec![
+        HeaderValue::from_static(ALLOWED_ORIGIN),
+        HeaderValue::from_static("http://127.0.0.1:3000"),
+        HeaderValue::from_static("http://localhost:5173"),
+        HeaderValue::from_static("http://127.0.0.1:5173"),
+    ]
+}
+
 pub fn app(engine: Engine) -> Router {
+    let origins = allowed_origins();
     let cors = CorsLayer::new()
-        .allow_origin(HeaderValue::from_static(ALLOWED_ORIGIN))
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers([header::CONTENT_TYPE]);
+        .allow_origin(origins)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([header::CONTENT_TYPE, header::ACCEPT, header::AUTHORIZATION]);
     let router = Router::new()
         .route("/", post(rpc_handler))
         .route("/health", get(health))
@@ -32,7 +60,10 @@ pub fn app(engine: Engine) -> Router {
     // Demo builds only: lets the attack lab show each mode fresh without a restart.
     #[cfg(feature = "demo")]
     let router = router.route(RESET_BREAKERS_PATH, post(reset_breakers));
-    router.layer(cors).with_state(engine)
+    router
+        .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024))
+        .layer(cors)
+        .with_state(engine)
 }
 
 /// `POST` here clears every provider's circuit breaker. Only routed with the `demo`

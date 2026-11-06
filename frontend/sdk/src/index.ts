@@ -19,6 +19,7 @@ export { loadVerifier, VerifierUnavailableError, VERIFIER_ABI_VERSION } from './
 export type { BrowserVerifier, VerifierSource, VerifyReadInput, VerifyReadOutcome } from './wasm'
 export { createTransport } from './transport'
 export type { VeriqTransport, VeriqTransportOptions } from './transport'
+export * from './delegation'
 export * from './errors'
 export * from './presets'
 export * from './schema'

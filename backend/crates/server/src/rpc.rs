@@ -19,6 +19,8 @@ pub const GET_ROOT: &str = "veriq_getRoot";
 pub const VERIFY_PROOF: &str = "veriq_verifyProof";
 pub const PROOFROUTE_READ_BALANCE: &str = "proofroute_readBalance";
 pub const PROOFROUTE_READ_STORAGE: &str = "proofroute_readStorage";
+pub const GET_DELEGATION: &str = "veriq_getDelegation";
+pub const PROOFROUTE_GET_DELEGATION: &str = "proofroute_getDelegation";
 pub const PROOFROUTE_GET_RECEIPT: &str = "proofroute_getReceipt";
 pub const PROOFROUTE_GET_PROVIDER_HEALTH: &str = "proofroute_getProviderHealth";
 pub const PROOFROUTE_GET_CAPABILITIES: &str = "proofroute_getCapabilities";
@@ -28,11 +30,13 @@ pub const PROOFROUTE_GET_CAPABILITIES: &str = "proofroute_getCapabilities";
 pub const CHAIN_ID_HEX: &str = "0xaa36a7";
 
 /// Methods answered with a proof-checked value at the pinned finalized block.
-pub const VERIFIED_METHODS: [&str; 8] = [
+pub const VERIFIED_METHODS: [&str; 10] = [
     READ_BALANCE,
     READ_STORAGE,
+    GET_DELEGATION,
     PROOFROUTE_READ_BALANCE,
     PROOFROUTE_READ_STORAGE,
+    PROOFROUTE_GET_DELEGATION,
     "eth_getBalance",
     "eth_getStorageAt",
     "eth_getTransactionCount",
@@ -92,6 +96,23 @@ pub async fn dispatch(engine: &Engine, request: Value) -> Value {
                     }),
                     None,
                 ),
+                Err(err) => error_response(&id, &err),
+            }
+        }
+        GET_DELEGATION | PROOFROUTE_GET_DELEGATION => {
+            let (address, policy) = match (
+                parse_address_param(&params, 0),
+                parse_policy_param(&params, 1),
+            ) {
+                (Ok(address), Ok(policy)) => (address, policy),
+                (Err(err), _) | (_, Err(err)) => return error_response(&id, &err),
+            };
+            match engine.read_delegation(meta, address, Some(policy)).await {
+                Ok(read) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": read.into_value(),
+                }),
                 Err(err) => error_response(&id, &err),
             }
         }
@@ -245,8 +266,8 @@ pub async fn dispatch(engine: &Engine, request: Value) -> Value {
 pub fn capabilities() -> Value {
     json!({
         "methods": [
-            READ_BALANCE, READ_STORAGE, GET_RECEIPT, GET_PROVIDER_HEALTH, GET_CAPABILITIES,
-            PROOFROUTE_READ_BALANCE, PROOFROUTE_READ_STORAGE,
+            READ_BALANCE, READ_STORAGE, GET_DELEGATION, GET_RECEIPT, GET_PROVIDER_HEALTH, GET_CAPABILITIES,
+            PROOFROUTE_READ_BALANCE, PROOFROUTE_READ_STORAGE, PROOFROUTE_GET_DELEGATION,
             PROOFROUTE_GET_RECEIPT, PROOFROUTE_GET_PROVIDER_HEALTH,
             PROOFROUTE_GET_CAPABILITIES,
             "eth_chainId", "eth_getBalance", "eth_getStorageAt", "eth_getTransactionCount", "eth_getCode",

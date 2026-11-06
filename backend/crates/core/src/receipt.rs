@@ -160,6 +160,29 @@ pub struct Warning {
     pub message: String,
 }
 
+impl Warning {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+
+    pub fn delegation(delegate: alloy_primitives::Address) -> Self {
+        Self::new(
+            "EIP7702_DELEGATION_DETECTED",
+            format!("Account execution is delegated to {delegate:#x}"),
+        )
+    }
+
+    pub fn delegation_revoked() -> Self {
+        Self::new(
+            "EIP7702_DELEGATION_REVOKED",
+            "Account has an inactive/cleared EIP-7702 delegation designator",
+        )
+    }
+}
+
 /// keccak256(method || canonical-json) as lowercase hex, without `0x`.
 pub fn binding(method: &str, value: &Value) -> String {
     let canonical = canonical_json(value);

@@ -286,6 +286,43 @@ export const CapabilitiesSchema = z
   })
   .passthrough()
 
+// ---------------------------------------------------------------- EIP-7702 Delegation Guard
+
+export const DelegationStatusSchema = z.union([
+  z.object({
+    status: z.enum(['normal-eoa', 'contract', 'revoked', 'invalid-designator']),
+  }),
+  z.object({
+    status: z.literal('delegated'),
+    delegate: hex(20),
+  }),
+  z.enum(['normal-eoa', 'delegated', 'contract', 'revoked', 'invalid-designator']),
+])
+
+export const DelegationSecurityClassificationSchema = z.enum([
+  'normal-eoa',
+  'smart-contract',
+  'delegation-detected',
+  'delegation-revoked',
+  'unverified-delegate',
+  'delegate-code-verified',
+  'potential-risk',
+  'security-assessment-unavailable',
+])
+
+export const DelegationResultSchema = z.object({
+  address: hex(20),
+  status: DelegationStatusSchema,
+  isDelegated: z.boolean(),
+  delegateAddress: hex(20).nullish(),
+  codeHash: Hex32Schema,
+  delegateCodeHash: Hex32Schema.nullish(),
+  securityClassification: DelegationSecurityClassificationSchema,
+  blockNumber: u64.optional(),
+  verified: z.boolean().default(true),
+  receipt: TrustReceiptSchema,
+})
+
 // ---------------------------------------------------------------- readable issues
 
 function valueAt(input: unknown, path: (string | number)[]): unknown {

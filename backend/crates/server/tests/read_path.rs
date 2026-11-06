@@ -14,7 +14,8 @@ use alloy_trie::{
 use async_trait::async_trait;
 use serde_json::json;
 use veriq_core::{
-    AttemptOutcome, ErrorCode, Mechanism, RootSourceKind, VerificationStatus, VeriqError,
+    AttemptOutcome, DelegationSecurityClassification, DelegationStatus, ErrorCode, Mechanism,
+    RootSourceKind, VerificationStatus, VeriqError,
 };
 use veriq_light_client::{
     cached::CachedRoot, fixed::FixedRoot, PinnedRoot, RootSource, RootSourceProvider,
@@ -1569,4 +1570,170 @@ async fn a_mainnet_engine_with_a_fixture_root_verifies_and_says_chain_1() {
     )
     .await;
     assert_eq!(chain["result"], "0x1");
+}
+
+// ---- EIP-7702 Delegation Guard ---------------------------------------------------------
+
+#[tokio::test]
+async fn delegation_read_detects_eip7702_designator() {
+    let delegate = Address::repeat_byte(0x42);
+    let mut code_bytes = vec![0xef, 0x01, 0x00];
+    code_bytes.extend_from_slice(delegate.as_slice());
+    let code = Bytes::from(code_bytes);
+
+    let (state_root, bundle) = fixture_with_code(code.clone());
+    let engine = engine_with_code(state_root, bundle, code.clone());
+
+    let req = request("veriq_getDelegation", json!([format!("{TARGET:#x}")]));
+    let read = engine
+        .read_delegation(req, TARGET, None)
+        .await
+        .expect("verified delegation read");
+
+    assert_eq!(read.result.status, DelegationStatus::Delegated(delegate));
+    assert_eq!(read.result.delegate_address, Some(delegate));
+    assert_eq!(read.result.code_hash, keccak256(&code));
+    assert_eq!(
+        read.result.security_classification,
+        DelegationSecurityClassification::DelegationDetected
+    );
+    assert!(
+        read.receipt
+            .warnings
+            .iter()
+            .any(|w| w.code == "EIP7702_DELEGATION_DETECTED"),
+        "receipt must include EIP7702_DELEGATION_DETECTED warning"
+    );
+
+    // Also verify RPC dispatch
+    let rpc_res = dispatch(
+        &engine,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 42,
+            "method": "veriq_getDelegation",
+            "params": [format!("{TARGET:#x}")]
+        }),
+    )
+    .await;
+
+    assert_eq!(rpc_res["result"]["isDelegated"], true);
+    assert_eq!(
+        rpc_res["result"]["delegateAddress"],
+        format!("{delegate:#x}").to_lowercase()
+    );
+    assert_eq!(
+        rpc_res["result"]["securityClassification"],
+        "delegation-detected"
+    );
+    assert_eq!(rpc_res["result"]["verified"], true);
+    assert_eq!(
+        rpc_res["result"]["receipt"]["verification"]["status"],
+        "verified"
+    );
+}
+
+#[tokio::test]
+async fn delegation_read_distinguishes_eoa_and_revocation_and_contract() {
+    // 1. Normal EOA (empty code)
+    {
+        let (state_root, bundle) = fixture_with_code(Bytes::new());
+        let engine = engine_with_code(state_root, bundle, Bytes::new());
+        let read = engine
+            .read_delegation(
+                request("veriq_getDelegation", json!([format!("{TARGET:#x}")])),
+                TARGET,
+                None,
+            )
+            .await
+            .expect("read normal eoa");
+        assert_eq!(read.result.status, DelegationStatus::NormalEoa);
+        assert_eq!(read.result.delegate_address, None);
+        assert_eq!(
+            read.result.security_classification,
+            DelegationSecurityClassification::NormalEoa
+        );
+    }
+
+    // 2. Revoked delegation (0xef0100 || 20 zero bytes)
+    {
+        let mut revoked_bytes = vec![0xef, 0x01, 0x00];
+        revoked_bytes.extend_from_slice(Address::ZERO.as_slice());
+        let code = Bytes::from(revoked_bytes);
+        let (state_root, bundle) = fixture_with_code(code.clone());
+        let engine = engine_with_code(state_root, bundle, code);
+        let read = engine
+            .read_delegation(
+                request("veriq_getDelegation", json!([format!("{TARGET:#x}")])),
+                TARGET,
+                None,
+            )
+            .await
+            .expect("read revoked delegation");
+        assert_eq!(read.result.status, DelegationStatus::Revoked);
+        assert_eq!(read.result.delegate_address, None);
+        assert_eq!(
+            read.result.security_classification,
+            DelegationSecurityClassification::DelegationRevoked
+        );
+        assert!(
+            read.receipt
+                .warnings
+                .iter()
+                .any(|w| w.code == "EIP7702_DELEGATION_REVOKED"),
+            "receipt must include EIP7702_DELEGATION_REVOKED warning"
+        );
+    }
+
+    // 3. Normal smart contract
+    {
+        let code = Bytes::from_static(&[0x60, 0x01, 0x60, 0x00, 0x55]);
+        let (state_root, bundle) = fixture_with_code(code.clone());
+        let engine = engine_with_code(state_root, bundle, code);
+        let read = engine
+            .read_delegation(
+                request("veriq_getDelegation", json!([format!("{TARGET:#x}")])),
+                TARGET,
+                None,
+            )
+            .await
+            .expect("read smart contract");
+        assert_eq!(read.result.status, DelegationStatus::Contract);
+        assert_eq!(read.result.delegate_address, None);
+        assert_eq!(
+            read.result.security_classification,
+            DelegationSecurityClassification::SmartContract
+        );
+    }
+}
+
+#[tokio::test]
+async fn hidedelegation_attacker_is_rejected_as_invalid_proof() {
+    let delegate = Address::repeat_byte(0x99);
+    let mut code_bytes = vec![0xef, 0x01, 0x00];
+    code_bytes.extend_from_slice(delegate.as_slice());
+    let code = Bytes::from(code_bytes);
+
+    // The state root and trie account proof commit to `keccak256(code)`
+    let (state_root, bundle) = fixture_with_code(code);
+
+    // The attacker returns empty code `0x` for eth_getCode (HideDelegation attack mode)
+    let lying_code = Bytes::new();
+    let engine = engine_with_code(state_root, bundle, lying_code);
+
+    let result = engine
+        .read_delegation(
+            request("veriq_getDelegation", json!([format!("{TARGET:#x}")])),
+            TARGET,
+            None,
+        )
+        .await;
+
+    // Must fail closed with InvalidProof
+    match result {
+        Err(err) => {
+            assert_eq!(err.code(), ErrorCode::InvalidProof);
+        }
+        Ok(read) => panic!("expected InvalidProof error, got success: {read:?}"),
+    }
 }

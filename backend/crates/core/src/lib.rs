@@ -1,11 +1,17 @@
 pub mod account;
 pub mod config;
+pub mod delegation;
 pub mod error;
 pub mod policy;
 pub mod receipt;
 
 pub use account::{Account, ProvenAccount, EMPTY_ROOT_HASH, KECCAK_EMPTY};
 pub use config::Network;
+pub use delegation::{
+    classify_account_code, parse_delegation_designator, DelegationDesignator,
+    DelegationDetectionResult, DelegationParseError, DelegationSecurityClassification,
+    DelegationStatus, DELEGATION_PREFIX, DESIGNATOR_LENGTH,
+};
 pub use error::{ErrorCode, VeriqError};
 pub use policy::{BlockPolicy, Consistency, Policy, PrivacyPolicy, VerificationPolicy};
 pub use receipt::{

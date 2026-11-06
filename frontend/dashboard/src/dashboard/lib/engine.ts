@@ -15,6 +15,7 @@ import {
   type Policy,
   type VerifiedResult,
   type ReceiptRecord,
+  type DelegationResult,
 } from 'veriq-client'
 import {
   ATTACK_MODES,
@@ -230,6 +231,73 @@ export function useDemoContractStorage() {
     refetchInterval: 30_000,
     retry: false,
   })
+}
+
+export type DelegationOutcome =
+  | { ok: true; source: Source; result: DelegationResult }
+  | { ok: false; source: Source; error: VeriqError | Error }
+
+export async function readDelegation(
+  address: string,
+  policy: Policy = verifiedFinalized,
+): Promise<DelegationOutcome> {
+  const source: Source = 'live'
+  try {
+    const result = isAnonEnabled()
+      ? await (await getPrivateReader(veriq)).getDelegation({ address, policy })
+      : await veriq.getDelegation({ address, policy })
+    return { ok: true, source, result }
+  } catch (err) {
+    if (isUnreachable(err)) {
+      return {
+        ok: true,
+        source: 'mock',
+        result: {
+          address: address as `0x${string}`,
+          status: { status: 'delegated', delegate: DEMO_CONTRACT_ADDRESS },
+          isDelegated: true,
+          delegateAddress: DEMO_CONTRACT_ADDRESS,
+          codeHash: '0x32e92c63dfb3a033f9cfb42fae9cc57be2faea1534032d184ebffb904c6e9491',
+          delegateCodeHash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+          securityClassification: 'delegation-detected',
+          blockNumber: 7412903,
+          verified: true,
+          receipt: {
+            identity: {
+              requestId: 'mock-delegation-1',
+              method: 'veriq_getDelegation',
+              requestBinding: 'ab'.repeat(32),
+              resultBinding: 'cd'.repeat(32),
+            },
+            block: {
+              number: 7412903,
+              hash: `0x9a3f${'0'.repeat(56)}c21e`,
+              stateRoot: `0x51be${'1'.repeat(56)}07aa`,
+              finalized: true,
+              chainId: 11155111,
+            },
+            verification: {
+              status: 'verified',
+              rootSource: 'local-light-client',
+              verifierLocation: 'local-engine',
+              mechanisms: ['account-proof', 'code-hash'],
+              bootstrap: { source: 'helios', checkpoint: null, checkpointSource: null },
+            },
+            privacy: { transport: isAnonEnabled() ? 'anon-rpc' : 'direct', mechanism: isAnonEnabled() ? 'nox' : null },
+            routing: { comparison: 'not-run', providersTried: 1, providerLabel: 'alchemy', attempts: [] },
+            freshness: { observedAt: Date.now() / 1000, ageSeconds: 12, pinned: true },
+            warnings: [
+              {
+                code: 'EIP7702_DELEGATION_DETECTED',
+                message: `EIP-7702 delegation active: calls execute code from ${DEMO_CONTRACT_ADDRESS}`,
+              },
+            ],
+          },
+        },
+      }
+    }
+    return { ok: false, source, error: err instanceof Error ? err : new Error(String(err)) }
+  }
 }
 
 // ---------------------------------------------------------------- attacker

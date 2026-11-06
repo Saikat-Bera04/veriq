@@ -11,6 +11,7 @@ import {
   PanelLeftOpen,
   Satellite,
   Server,
+  ShieldAlert,
   SlidersHorizontal,
   Swords,
   TriangleAlert,
@@ -37,6 +38,7 @@ interface NavItem {
 export const NAV: NavItem[] = [
   { to: '/app', label: 'Overview', short: 'Overview', title: 'Overview', Icon: LayoutDashboard },
   { to: '/app/feed', label: 'Live feed', short: 'Feed', title: 'Live feed', Icon: Activity },
+  { to: '/app/delegation-guard', label: 'Delegation guard', short: 'Guard', title: 'EIP-7702 Delegation Guard', Icon: ShieldAlert },
   { to: '/app/providers', label: 'Providers', short: 'Providers', title: 'Providers', Icon: Server },
   { to: '/app/light-client', label: 'Light client', short: 'Light', title: 'Light client', Icon: Satellite },
   { to: '/app/attack-lab', label: 'Attack lab', short: 'Attack', title: 'Attack lab', Icon: Swords },

@@ -31,8 +31,9 @@ import {
   VeriqError,
 } from './errors'
 import { TrustReceiptSchema } from './schema'
-import type { Hex, Policy, TrustReceipt, VerifiedResult } from './types'
+import type { Address, DelegationResult, DelegationSecurityClassification, Hex, Policy, TrustReceipt, VerifiedResult } from './types'
 import type { BrowserVerifier } from './wasm'
+import { classifyAccountCode } from './delegation'
 
 /** A provider the private reader may ask, through the anonymizing fetch. */
 export interface PrivateProvider {
@@ -122,6 +123,7 @@ export interface PrivateReader {
   readStorage(args: { address: string; slot: string; policy?: Policy }): Promise<VerifiedResult<Hex>>
   readNonce(args: { address: string; policy?: Policy }): Promise<VerifiedResult<bigint>>
   readCode(args: { address: string; policy?: Policy }): Promise<VerifiedResult<Hex>>
+  getDelegation(args: { address: string; policy?: Policy }): Promise<DelegationResult>
 }
 
 type Kind = 'balance' | 'nonce' | 'storage' | 'code'
@@ -562,5 +564,57 @@ export function createPrivateReader(client: VeriqClient, opts: PrivateReaderOpti
       return { ...r, value: `0x${BigInt(r.value).toString(16).padStart(64, '0')}` as Hex }
     },
     readCode: ({ address, policy }) => read('code', address, undefined, policy),
+    getDelegation: async ({ address, policy }) => {
+      assertAddress(address)
+      const codeResult = await read('code', address, undefined, policy)
+      const classified = classifyAccountCode(codeResult.value)
+      const isDelegated = classified.isDelegated
+      const delegateAddress = classified.delegateAddress
+      const receipt: TrustReceipt = {
+        ...codeResult.receipt,
+        warnings: [...codeResult.receipt.warnings],
+      }
+
+      let securityClassification: DelegationSecurityClassification
+      if (classified.status.status === 'normal-eoa') {
+        securityClassification = 'normal-eoa'
+      } else if (classified.status.status === 'delegated') {
+        securityClassification = 'delegation-detected'
+        if (delegateAddress) {
+          receipt.warnings.push({
+            code: 'EIP7702_DELEGATION_DETECTED',
+            message: `EIP-7702 delegation active: calls execute code from ${delegateAddress}`,
+          })
+        }
+      } else if (classified.status.status === 'revoked') {
+        securityClassification = 'delegation-revoked'
+        receipt.warnings.push({
+          code: 'EIP7702_DELEGATION_REVOKED',
+          message: 'EIP-7702 delegation cleared: account was previously delegated but is now empty',
+        })
+      } else if (classified.status.status === 'contract') {
+        securityClassification = 'smart-contract'
+      } else {
+        securityClassification = 'potential-risk'
+        receipt.warnings.push({
+          code: 'EIP7702_INVALID_DESIGNATOR',
+          message: 'Account code begins with 0xef0100 but has invalid length or malformed encoding',
+        })
+      }
+
+      const codeHash = (codeResult.receipt.identity.resultBinding || `0x${'0'.repeat(64)}`) as Hex
+
+      return {
+        address: address as Address,
+        status: classified.status,
+        isDelegated,
+        delegateAddress,
+        codeHash,
+        securityClassification,
+        blockNumber: codeResult.receipt.block.number,
+        verified: codeResult.verified,
+        receipt,
+      }
+    },
   }
 }

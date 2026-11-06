@@ -122,7 +122,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     spawn_reprobe(&engine)?;
     // Empty values (an unfilled line in .env) mean the default, like a missing variable.
     let setting = |name: &str| env::var(name).ok().filter(|value| !value.trim().is_empty());
-    let host = setting("VERIQ_HOST").unwrap_or_else(|| "127.0.0.1".into());
+    let host = setting("VERIQ_HOST").unwrap_or_else(|| {
+        if env::var("PORT").is_ok() || env::var("RENDER").is_ok() {
+            "0.0.0.0".into()
+        } else {
+            "127.0.0.1".into()
+        }
+    });
     let port = setting("PORT").unwrap_or_else(|| "8547".into());
     let bind_str = format!("{host}:{port}");
     let addr = SocketAddr::from_str(&bind_str)?;
@@ -133,8 +139,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         listener,
         app(engine).into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown_signal())
     .await?;
+    tracing::info!("server shutdown complete");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Ctrl+C signal received, starting graceful shutdown");
+        },
+        _ = terminate => {
+            tracing::info!("SIGTERM signal received, starting graceful shutdown");
+        },
+    }
 }
 
 /// Put a `RootCache` in front of the root source and keep it fresh in the background,
@@ -214,7 +250,18 @@ fn select_root(
     file_config: &FileConfig,
     network: Network,
 ) -> Result<Arc<dyn RootSourceProvider>, Box<dyn std::error::Error>> {
-    match env::var(names::ROOT_SOURCE).as_deref() {
+    let root_source_var = env::var(names::ROOT_SOURCE);
+    let is_prod = env::var("VERIQ_ENV").as_deref() == Ok("production")
+        || env::var("ENVIRONMENT").as_deref() == Ok("production")
+        || env::var("NODE_ENV").as_deref() == Ok("production");
+    if is_prod && matches!(root_source_var.as_deref(), Ok("dev-untrusted" | "fixture")) {
+        return Err(
+            "dev-untrusted and fixture root sources are strictly prohibited in production; set VERIQ_ROOT_SOURCE=helios"
+                .into(),
+        );
+    }
+
+    match root_source_var.as_deref() {
         Ok("fixture") => Ok(Arc::new(fixture_root()?)),
         Ok("dev-untrusted") => {
             // Dev only: the root comes from a provider, so receipts are `unverified`.

@@ -1,0 +1,52 @@
+# Render Blueprint for VeriQ Engine & Managed PostgreSQL
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: veriq-engine
+    env: docker
+    dockerfilePath: ./docker/Dockerfile.engine
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: VERIQ_ENV
+        value: production
+      - key: VERIQ_NETWORK
+        value: sepolia
+      - key: VERIQ_HOST
+        value: 0.0.0.0
+      - key: VERIQ_ROOT_SOURCE
+        value: helios
+      - key: VERIQ_ALLOWED_ORIGINS
+        value: https://veriq.vercel.app,https://veriq-dashboard.vercel.app,http://localhost:3000
+      - key: VERIQ_VERIFIED_CACHE
+        value: "1"
+      - key: HELIOS_DATA_DIR
+        value: /data/helios
+      # Linked to the PostgreSQL managed database created below
+      - key: DATABASE_URL
+        fromDatabase:
+          name: veriq-postgres
+          property: connectionString
+      # Ethereum Infrastructure Secrets / Config
+      - key: HELIOS_CONSENSUS_RPC
+        sync: false
+        # Example: https://lodestar-sepolia.chainsafe.io
+      - key: VERIQ_PROVIDERS
+        sync: false
+        # Example: publicnode=https://ethereum-sepolia-rpc.publicnode.com,infura=https://sepolia.infura.io/v3/YOUR_KEY
+    disk:
+      name: helios-data
+      mountPath: /data
+      sizeGB: 10
+
+databases:
+  - name: veriq-postgres
+    databaseName: proofroute
+    user: veriq
+    plan: starter
+    region: oregon
+    postgresMajorVersion: "16"
+
