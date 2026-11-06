@@ -39,3 +39,12 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = "warn"
+
+# The browser verifier (crates/verifier-wasm): small download, same code. Used only by
+# scripts/build-verifier-wasm.sh; the engine keeps the default release profile.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

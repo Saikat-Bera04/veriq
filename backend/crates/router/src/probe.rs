@@ -102,11 +102,17 @@ pub fn parse_provider_list(spec: &str) -> Vec<(String, String)> {
 }
 
 pub async fn probe_providers(spec: &str) -> Vec<ProviderCapabilities> {
+    probe_providers_for(spec, SEPOLIA_CHAIN_ID).await
+}
+
+/// Startup probe for an engine on `chain_id`: a provider on any other chain is "wrong chain"
+/// and never routed to.
+pub async fn probe_providers_for(spec: &str, chain_id: u64) -> Vec<ProviderCapabilities> {
     let client = reqwest::Client::new();
     let mut providers = Vec::new();
 
     for (name, endpoint) in parse_provider_list(spec) {
-        let provider = probe_provider(name, endpoint, &client, PROBE_TIMEOUT).await;
+        let provider = probe_provider(name, endpoint, &client, PROBE_TIMEOUT, chain_id).await;
         if let Some(reason) = provider.failure_reason {
             tracing::warn!(
                 reason,
@@ -133,11 +139,17 @@ pub async fn probe_providers(spec: &str) -> Vec<ProviderCapabilities> {
 /// Probe one provider again (same checks and timeouts as the startup probe).
 /// Used to re-check providers the startup probe marked ineligible.
 pub async fn probe_endpoint(name: &str, endpoint: &str) -> ProviderCapabilities {
+    probe_endpoint_for(name, endpoint, SEPOLIA_CHAIN_ID).await
+}
+
+/// [`probe_endpoint`] for an engine on `chain_id`.
+pub async fn probe_endpoint_for(name: &str, endpoint: &str, chain_id: u64) -> ProviderCapabilities {
     probe_provider(
         name.to_owned(),
         endpoint.to_owned(),
         &reqwest::Client::new(),
         PROBE_TIMEOUT,
+        chain_id,
     )
     .await
 }
@@ -147,6 +159,7 @@ async fn probe_provider(
     endpoint: String,
     client: &reqwest::Client,
     operation_timeout: Duration,
+    expected_chain_id: u64,
 ) -> ProviderCapabilities {
     let mut capabilities = ProviderCapabilities {
         name,
@@ -179,7 +192,7 @@ async fn probe_provider(
         }
     };
     capabilities.chain_id = Some(chain_id);
-    capabilities.chain_ok = chain_id == SEPOLIA_CHAIN_ID;
+    capabilities.chain_ok = chain_id == expected_chain_id;
     if !capabilities.chain_ok {
         capabilities.failure_reason = Some("wrong chain");
         return capabilities;
@@ -497,7 +510,14 @@ mod tests {
 
     async fn probe(mock: &MockRpc, timeout: std::time::Duration) -> ProviderCapabilities {
         let client = reqwest::Client::new();
-        probe_provider("mock".to_owned(), mock.endpoint.clone(), &client, timeout).await
+        probe_provider(
+            "mock".to_owned(),
+            mock.endpoint.clone(),
+            &client,
+            timeout,
+            SEPOLIA_CHAIN_ID,
+        )
+        .await
     }
 
     #[test]
@@ -522,6 +542,36 @@ mod tests {
         assert!(!capabilities.chain_ok());
         assert!(!capabilities.eligible());
         assert_eq!(capabilities.failure_reason(), Some("wrong chain"));
+    }
+
+    #[tokio::test]
+    async fn a_mainnet_engine_excludes_a_sepolia_provider_and_accepts_a_mainnet_one() {
+        let client = reqwest::Client::new();
+        let timeout = std::time::Duration::from_secs(1);
+        // This mock answers eth_chainId 0xaa36a7 (Sepolia).
+        let sepolia = mock_rpc(MockKind::NoBlockHash).await;
+        let caps = probe_provider(
+            "s".to_owned(),
+            sepolia.endpoint.clone(),
+            &client,
+            timeout,
+            1,
+        )
+        .await;
+        assert_eq!(caps.chain_id(), Some(SEPOLIA_CHAIN_ID));
+        assert!(!caps.eligible());
+        assert_eq!(caps.failure_reason(), Some("wrong chain"));
+        // This one answers 0x1: wrong for Sepolia, right for mainnet.
+        let mainnet = mock_rpc(MockKind::WrongChain).await;
+        let caps = probe_provider(
+            "m".to_owned(),
+            mainnet.endpoint.clone(),
+            &client,
+            timeout,
+            1,
+        )
+        .await;
+        assert!(caps.chain_ok(), "{:?}", caps.failure_reason());
     }
 
     #[tokio::test]

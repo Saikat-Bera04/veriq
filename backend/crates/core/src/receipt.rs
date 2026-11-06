@@ -35,6 +35,9 @@ pub struct Block {
     pub hash: B256,
     pub state_root: B256,
     pub finalized: bool,
+    /// The chain this block is on (S6). Absent in receipts written before mainnet support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +160,29 @@ pub struct Warning {
     pub message: String,
 }
 
+impl Warning {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+
+    pub fn delegation(delegate: alloy_primitives::Address) -> Self {
+        Self::new(
+            "EIP7702_DELEGATION_DETECTED",
+            format!("Account execution is delegated to {delegate:#x}"),
+        )
+    }
+
+    pub fn delegation_revoked() -> Self {
+        Self::new(
+            "EIP7702_DELEGATION_REVOKED",
+            "Account has an inactive/cleared EIP-7702 delegation designator",
+        )
+    }
+}
+
 /// keccak256(method || canonical-json) as lowercase hex, without `0x`.
 pub fn binding(method: &str, value: &Value) -> String {
     let canonical = canonical_json(value);
@@ -236,6 +262,26 @@ mod tests {
                     .expect("older transport parses");
             assert_eq!(old.transport, transport);
         }
+    }
+
+    #[test]
+    fn block_chain_id_is_additive() {
+        use super::Block;
+        let old: Block = serde_json::from_value(json!({
+            "number": 1, "hash": format!("0x{}", "11".repeat(32)),
+            "stateRoot": format!("0x{}", "22".repeat(32)), "finalized": true
+        }))
+        .expect("a receipt block without chainId still parses");
+        assert_eq!(old.chain_id, None);
+        assert!(serde_json::to_value(&old)
+            .expect("ser")
+            .get("chainId")
+            .is_none());
+        let new = Block {
+            chain_id: Some(1),
+            ..old
+        };
+        assert_eq!(serde_json::to_value(&new).expect("ser")["chainId"], 1);
     }
 
     #[test]

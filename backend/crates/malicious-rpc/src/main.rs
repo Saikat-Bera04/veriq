@@ -8,7 +8,8 @@
 //! unchanged; attack modes mutate `eth_getProof`, and `value` / `proof` also make
 //! `eth_getBalance` claim +1000 ETH (what an unchecked app would display).
 //! `nonce` adds 1 to the nonce in `eth_getProof` and `eth_getTransactionCount`;
-//! `code` alters the bytes `eth_getCode` returns (the proof is left honest).
+//! `code` alters the bytes `eth_getCode` returns (the proof is left honest);
+//! `hidedelegation` returns empty code `0x` for `eth_getCode` while leaving the proof honest.
 
 use std::{env, net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
@@ -41,10 +42,11 @@ enum AttackMode {
     Outage,
     Nonce,
     Code,
+    HideDelegation,
 }
 
 impl AttackMode {
-    const ALL: [&'static str; 7] = [
+    const ALL: [&'static str; 8] = [
         "off",
         "value",
         "proof",
@@ -52,6 +54,7 @@ impl AttackMode {
         "outage",
         "nonce",
         "code",
+        "hidedelegation",
     ];
 
     fn parse(value: &str) -> Option<Self> {
@@ -63,6 +66,7 @@ impl AttackMode {
             "outage" => Some(Self::Outage),
             "nonce" => Some(Self::Nonce),
             "code" => Some(Self::Code),
+            "hidedelegation" => Some(Self::HideDelegation),
             _ => None,
         }
     }
@@ -76,6 +80,7 @@ impl AttackMode {
             Self::Outage => "outage",
             Self::Nonce => "nonce",
             Self::Code => "code",
+            Self::HideDelegation => "hidedelegation",
         }
     }
 }
@@ -192,7 +197,8 @@ async fn rpc(State(state): State<AppState>, body: Bytes) -> Response {
             | AttackMode::Proof
             | AttackMode::Outage
             | AttackMode::Nonce
-            | AttackMode::Code => {}
+            | AttackMode::Code
+            | AttackMode::HideDelegation => {}
         }
     }
 
@@ -215,7 +221,8 @@ async fn rpc(State(state): State<AppState>, body: Bytes) -> Response {
                     AttackMode::Off
                     | AttackMode::WrongBlock
                     | AttackMode::Outage
-                    | AttackMode::Code => {}
+                    | AttackMode::Code
+                    | AttackMode::HideDelegation => {}
                 }
             }
             if status.is_success() {
@@ -224,6 +231,9 @@ async fn rpc(State(state): State<AppState>, body: Bytes) -> Response {
                         bump_quantity_result(&mut response)
                     }
                     (AttackMode::Code, Some("eth_getCode")) => alter_code(&mut response),
+                    (AttackMode::HideDelegation, Some("eth_getCode")) => {
+                        hide_delegation(&mut response)
+                    }
                     _ => {}
                 }
             }
@@ -437,6 +447,16 @@ fn alter_code(response: &mut Value) {
         format!("0x{head}{byte:02x}")
     };
     response["result"] = json!(altered);
+}
+
+/// Hide delegation: forces `eth_getCode` to return `"0x"` (empty code), pretending
+/// that a delegated EOA has no code at all. The account's `codeHash` in `eth_getProof`
+/// is left honest, so Veriq will detect the hash mismatch against keccak256("")
+/// and reject the response with INVALID_PROOF.
+fn hide_delegation(response: &mut Value) {
+    if response.get("result").is_some() {
+        response["result"] = json!("0x");
+    }
 }
 
 fn corrupt_proof(response: &mut Value) {
@@ -802,6 +822,44 @@ mod tests {
         let mut empty = json!({"result": "0x"});
         super::alter_code(&mut empty);
         assert_eq!(empty["result"], "0x00");
+    }
+
+    #[test]
+    fn hidedelegation_clears_eth_get_code() {
+        let mut delegated = json!({"result": "0xef01001242c562946c926a6d0012acb54d9413a54a1ca4"});
+        super::hide_delegation(&mut delegated);
+        assert_eq!(delegated["result"], "0x");
+    }
+
+    #[tokio::test]
+    async fn hidedelegation_returns_empty_code_and_leaves_proof() {
+        let upstream = test_server(mock_server(MockState::default())).await;
+        let app = Router::new()
+            .route("/", post(super::rpc))
+            .with_state(test_state(
+                format!("http://{upstream}/"),
+                AttackMode::HideDelegation,
+            ));
+        let read = |body: String| {
+            let app = app.clone();
+            async move {
+                let response = call_rpc(&app, &body).await;
+                serde_json::from_slice::<Value>(
+                    &axum::body::to_bytes(response.into_body(), usize::MAX)
+                        .await
+                        .expect("body"),
+                )
+                .expect("json")
+            }
+        };
+        let proof = r#"{"jsonrpc":"2.0","id":1,"method":"eth_getProof","params":["0x0000000000000000000000000000000000000000",[],"finalized"]}"#;
+        let got_proof = read(proof.to_owned()).await;
+        assert_eq!(got_proof["result"]["balance"], "0x2a");
+        assert_eq!(got_proof["result"]["accountProof"][0], "0xf902");
+
+        let code_req = r#"{"jsonrpc":"2.0","id":1,"method":"eth_getCode","params":["0x0000000000000000000000000000000000000000","finalized"]}"#;
+        let got_code = read(code_req.to_owned()).await;
+        assert_eq!(got_code["result"], "0x");
     }
 
     #[tokio::test]

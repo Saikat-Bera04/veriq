@@ -1,5 +1,5 @@
 import { EyeOff, Radio } from 'lucide-react'
-import { ANON_NETWORK, isAnonAvailable, setAnonMode, useAnonMode, useAnonStatus, type AnonMode, type AnonStatus } from '../lib/anon'
+import { anonNetwork, isAnonAvailable, setAnonMode, useAnonMode, useAnonStatus, type AnonMode, type AnonStatus } from '../lib/anon'
 import { Chip } from './ui'
 
 const MAX_REASON = 80
@@ -7,9 +7,9 @@ const MAX_REASON = 80
 /** The badge text: the state is in words, never only in the dot's colour. */
 export function anonBadgeLabel(mode: AnonMode, status: AnonStatus): string {
   if (mode === 'direct') return 'Direct mode'
-  if (status.state === 'ready') return `Anon-RPC: ready (${ANON_NETWORK})`
+  if (status.state === 'ready') return `Anon-RPC: ready (${anonNetwork()})`
   if (status.state === 'failed') {
-    const reason = (status.error?.message ?? 'unknown error').replace(/^Could not join the Nox mixnet: /, '')
+    const reason = (status.error?.message ?? 'unknown error').replace(/^(Could not join the Nox mixnet|Could not start private reads over [^:]+): /, '')
     return `Anon-RPC: failed — ${reason.length > MAX_REASON ? `${reason.slice(0, MAX_REASON)}…` : reason}`
   }
   return 'Anon-RPC: connecting…' // idle only for the instant before startAnon runs

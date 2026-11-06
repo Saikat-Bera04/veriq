@@ -40,6 +40,8 @@ export const BlockSchema = z.object({
   hash: Hex32Schema,
   stateRoot: Hex32Schema,
   finalized: z.boolean(),
+  /** S6: the chain this block is on. Absent in receipts from engines before mainnet support. */
+  chainId: u64.optional(),
 })
 
 export const BootstrapSchema = z.object({
@@ -172,6 +174,8 @@ export const RootInfoSchema = z.object({
   stateRoot: Hex32Schema,
   rootSource: z.string(),
   verified: z.boolean(),
+  /** S6: the engine's chain. Absent from older engines. */
+  chainId: z.number().int().positive().optional(),
 })
 
 /** A stored receipt row (GET /receipts, GET /receipts/:id). Failed reads carry `error` instead of `receipt`. */
@@ -281,6 +285,43 @@ export const CapabilitiesSchema = z
     privacy: z.boolean().default(false),
   })
   .passthrough()
+
+// ---------------------------------------------------------------- EIP-7702 Delegation Guard
+
+export const DelegationStatusSchema = z.union([
+  z.object({
+    status: z.enum(['normal-eoa', 'contract', 'revoked', 'invalid-designator']),
+  }),
+  z.object({
+    status: z.literal('delegated'),
+    delegate: hex(20),
+  }),
+  z.enum(['normal-eoa', 'delegated', 'contract', 'revoked', 'invalid-designator']),
+])
+
+export const DelegationSecurityClassificationSchema = z.enum([
+  'normal-eoa',
+  'smart-contract',
+  'delegation-detected',
+  'delegation-revoked',
+  'unverified-delegate',
+  'delegate-code-verified',
+  'potential-risk',
+  'security-assessment-unavailable',
+])
+
+export const DelegationResultSchema = z.object({
+  address: hex(20),
+  status: DelegationStatusSchema,
+  isDelegated: z.boolean(),
+  delegateAddress: hex(20).nullish(),
+  codeHash: Hex32Schema,
+  delegateCodeHash: Hex32Schema.nullish(),
+  securityClassification: DelegationSecurityClassificationSchema,
+  blockNumber: u64.optional(),
+  verified: z.boolean().default(true),
+  receipt: TrustReceiptSchema,
+})
 
 // ---------------------------------------------------------------- readable issues
 

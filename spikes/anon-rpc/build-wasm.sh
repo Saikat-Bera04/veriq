@@ -6,5 +6,5 @@ cargo build \
   --manifest-path ../../backend/Cargo.toml \
   -p veriq-verifier-wasm \
   --target wasm32-unknown-unknown \
-  --release
-cp ../../backend/target/wasm32-unknown-unknown/release/veriq_verifier_wasm.wasm ./verifier_wasm.wasm
+  --profile wasm-release
+cp ../../backend/target/wasm32-unknown-unknown/wasm-release/veriq_verifier_wasm.wasm ./verifier_wasm.wasm

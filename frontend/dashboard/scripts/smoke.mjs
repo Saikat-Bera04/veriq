@@ -34,7 +34,7 @@ const ANON_READ_MS = 120000
 // The worker's one direct request: reading the Nox specifier contract from PublicNode.
 const BOOTSTRAP_PATTERN = '*ethereum-sepolia-rpc.publicnode.com*'
 
-const PAGES = ['/', '/app', '/app/feed', '/app/providers', '/app/light-client', '/app/attack-lab', '/app/policy', '/app/developers']
+const PAGES = ['/', '/app', '/app/feed', '/app/providers', '/app/light-client', '/app/attack-lab', '/app/delegation-guard', '/app/policy', '/app/developers']
 // What the Attack Lab's balance read must show for the attacker in each mode: "outage" fails at
 // the transport, "code" only alters eth_getCode (balance reads stay honest, so it answers ok),
 // every other mode is caught by the proof.

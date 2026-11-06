@@ -8,10 +8,12 @@ on failure, the exact error.
 | Probe | Verdict |
 |---|---|
 | M0.0 test page skeleton | **PASS** (2026-11-05) |
-| M0.1 Nox to the beacon API | **FAIL** (2026-11-05, Nox rejects the beacon TLS certificate) |
+| M0.1 Nox to the beacon API | **FAIL** on Nimbus (2026-11-05, TLS certificate); **PASS** on Lodestar Sepolia (2026-11-06, re-run for S4) |
 | M0.2 Nox to a public RPC (`eth_getProof`) | **PASS** (2026-11-05, with retries; see finding) |
 | M0.3 gzip through Nox | **PASS** (2026-11-05, origin sees gzip; browser decompresses before app) |
 | M0.4 Rust verifier in WebAssembly | **PASS** (2026-11-05, 202,759-byte wasm verifies the EOA fixture and rejects a tampered proof) |
+| S4 Helios in the browser, synced over Nox | **PASS** (2026-11-06, Lodestar + PublicNode through Nox; see [S4](#s4--helios-in-the-browser-over-nox)) |
+| S6 Nym `mixFetch` on mainnet | **PASS, flaky** (2026-11-06, see [S6](#s6--nym-mixfetch-on-mainnet)) |
 
 ## M0.0 — Test page skeleton
 
@@ -194,3 +196,96 @@ Repro: `npm run build:wasm`, then `npm run serve` and `http://127.0.0.1:5180/?au
   - **M0.4 passes:** S5 (browser WASM verifier) is kept; M1's `veriq_verifyProof` remains the
     server-side path.
   - Nothing in M0 blocks M1–M4.
+
+## M0.1 re-run (2026-11-06) — the Nimbus certificate, and Lodestar through Nox
+
+**Why M0.1 failed:** `unstable.sepolia.beacon-api.nimbus.team` serves a *Cloudflare Origin CA*
+certificate, which no public trust store includes. It is not Nox-specific: plain `curl` over
+HTTPS fails the same way (2026-11-06). The engine's `.env` reaches Nimbus over `http://`, which
+works because Helios checks every signature itself.
+
+**Lodestar Sepolia (`lodestar-sepolia.chainsafe.io`, ChainSafe):** Let's Encrypt certificate,
+`access-control-allow-origin: *`, all Helios light-client endpoints. Run through Nox with the M0
+page and its new `?beacon=` option, `index.html?autorun=m01&beacon=https://lodestar-sepolia.chainsafe.io`
+(Headless Chrome 156, macOS, worker ready 3.3 s):
+
+| Check | Cold / warm | Status | Bytes |
+|---|---|---|---|
+| `headers/head` | 3050 / 1808 ms | 200 | 670 |
+| `finality_update` | 3998 / 1014 ms | 200 | 3,478 |
+| `optimistic_update` | 830 / 1567 ms | 200 | 1,645 |
+| `config/spec` | 786 / 1003 ms | 200 | 8,843 (`CONFIG_NAME=sepolia`) |
+| `bootstrap/{head root}` | 1615 ms | 200 | 53,874 |
+| `updates?count=1` | 1587 ms | 200 | 56,137 |
+
+**Finding — Lodestar serves a bootstrap only for the current finalized checkpoint.** Older
+roots (one epoch old, a day old, the engine's pinned 2026-10-26 checkpoint) answer HTTP 500
+`syncCommitteeWitness not available`. A pinned checkpoint therefore cannot bootstrap browser
+Helios; each start reads the current finalized checkpoint from **checkpointz**
+(`checkpoint-sync.sepolia.ethpandaops.io`, a different operator than the beacon API) through Nox,
+and needs every healthy upstream to agree. checkpointz and Lodestar reported the same root
+(`0x37a2…ed65`, then `0xa826…869e`) in every check.
+
+PublicNode's beacon API has no light-client endpoints (404/400); `sepolia.lightclientdata.org`
+answered 503.
+
+## S4 — Helios in the browser over Nox
+
+**Run 2026-11-06: PASS.** Page `spikes/anon-rpc/helios.html?checkpoint=0x…` (Headless Chrome 156,
+macOS). `@a16z/helios@0.12.0` is the npm build of the exact Helios commit the engine pins
+(`gitHead 2af9b41…`), one self-contained ES module with the wasm inlined (4.45 MB, 1.7 MB gzip).
+
+Routing: Helios calls the global `fetch`. It is configured with `https://consensus.helios.invalid`
+and `https://execution.helios.invalid`; a fetch wrapper sends only those two hosts through
+`AnonRpcWorker.fetch` to Lodestar and PublicNode. `.invalid` never resolves, so nothing can leak
+direct. One fix was needed: reqwest (wasm) parses `response.url` and panics on the empty URL of a
+constructed `Response` (`Error: url parse`); the wrapper sets it.
+
+| Step | Result |
+|---|---|
+| Nox worker ready | 3.7 s after page load |
+| Helios module load (dynamic import) | 29 ms (already cached) |
+| Sync (bootstrap → updates → finality update → 2 × `eth_getBlockByHash`) | **8.4 s** |
+| Requests, all through Nox | bootstrap 2.9 s (53,874 B), updates 2.1 s (56,137 B), finality 0.8 s, execution 2.1 s / 2.2 s (137 / 276 kB) |
+| Finalized block | #12076786 `0x04fc…0688`, state root `0x88c4…92e0` |
+| Cross-check | PublicNode direct: same number, hash and state root |
+
+The five responses are kept as `fixtures/browser-helios/sepolia-12076786.json.gz` (170 kB).
+`frontend/dashboard/src/dashboard/lib/helios-fixture.test.ts` replays them into the same Helios
+wasm under Node: it syncs to the recorded block in ~0.5 s, and rejects a finality update with one
+flipped signature byte (`invalid sync committee signature`) and a bootstrap for another slot. The
+replay also passes with the clock 30 days later, so the fixture does not age out.
+
+**Decision:** S4 is kept with no traffic split: beacon and execution requests of browser Helios
+both go through Nox. The engine's root is the cross-check (S4.2), not the bootstrap.
+
+## S6 — Nym mixFetch on mainnet
+
+Page `spikes/anon-rpc/nym.html` (Headless Chrome 156, macOS), `@nymproject/mix-fetch@3.0.1` (the
+smolmix backend; a single ESM module, 18.2 MB / 6.4 MB gzip with the wasm and worker inlined;
+browser-only, no Node build yet). Exits are Nym IPRs, so browser CORS does not apply.
+
+**Run 1, 2026-11-06 ~15:30Z: PASS.** Tunnel ready 9.6 s (module load 0.2 s).
+
+| Check | Through Nym |
+|---|---|
+| `eth_chainId` (first request to each host) | PublicNode 7.3 s, dRPC 15.8 s, BlastAPI 8.3 s: all `0x1` |
+| `eth_getProof` at `finalized` | PublicNode 4.4 s, dRPC 1.6 s, BlastAPI 2.5 s |
+| `eth_getProof` at `{ blockHash }` | PublicNode 1.9 s, dRPC 1.0 s, BlastAPI 1.3 s |
+| Beacon `light_client/finality_update` | Lodestar mainnet 7.2 s, PublicNode beacon 8.4 s |
+| checkpointz `sync-mainnet.beaconcha.in` | 8.2 s, 3 upstreams |
+| Warm `eth_getProof` | 1.4 s |
+
+**Reliability finding (later runs, ~16:00Z):** of three fresh tunnels, one never became ready
+(`operation timed out`), one became ready but timed out every request after 24 s, and one worked
+as above. Like Nox's tunnel budget, the dashboard needs a "recreate the tunnel after repeated
+timeouts" path before Nym is demo-safe; until then a failed tunnel shows as failed reads (never a
+direct read).
+
+Keyless mainnet providers checked directly for finalized `eth_getProof`: PublicNode, dRPC,
+BlastAPI OK; Cloudflare `-32046`; Ankr needs a key; 1rpc / LlamaRPC no JSON answer. Mainnet beacon
+APIs with light-client endpoints and current bootstraps: Lodestar, PublicNode
+(`lightclientdata.org` 503).
+
+**Decision:** mainnet private reads in the browser go through Nym. Tor stays an allowed network
+name for mainnet (bring your own fetch from Node); the dashboard reports it as unavailable.

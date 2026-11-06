@@ -1,0 +1,9 @@
+# Mainnet engine configuration (non-secret values only). Used when VERIQ_NETWORK=mainnet.
+# The engine refuses to start if this file names another chain.
+chain_id = 1
+name = "mainnet"
+# Execution providers come from VERIQ_PROVIDERS so URLs/keys stay in .env; the startup probe
+# marks any provider that is not on chain 1 as "wrong chain" and never routes to it.
+root_source = "helios"
+strict_finalized = true
+engine_addr = "127.0.0.1:8547"

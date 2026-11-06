@@ -38,7 +38,7 @@ needs a separately designed access-controlled deployment. All service calls are 
 
 ## Pages (`src/dashboard/pages`)
 
-Overview, Feed (with the receipt drawer), Attack lab, Providers, Light client, Policy, Developers.
+Overview, Feed (with the receipt drawer), Delegation guard, Attack lab, Providers, Light client, Policy, Developers.
 
 ## Tests
 
@@ -50,6 +50,7 @@ Vitest + Testing Library + happy-dom, with the engine and attacker replaced by a
 | `lib/engine.test.ts` | live/mock fallback tagging; typed engine errors stay errors |
 | `pages/AttackLab.test.tsx` | mode changes, failed switches, lie vs proven value, outage, simulated attacker |
 | `pages/Overview.test.tsx` | deployed contract storage read, receipt link, and fail-closed rendering |
+| `pages/DelegationGuard.test.tsx` | EIP-7702 delegation detection, address inspection, Trust Receipt warnings |
 | `components/ReceiptDrawer.test.tsx` | drawer renders the real `fixtures/receipt-sample.json`; Escape closes |
 | `pages/Policy.test.tsx` | `POLICY_UNSATISFIABLE` shown as a typed error, then a verified read |
 | `components/footerStatus.test.ts` | footer engine chip: Helios synced, dev mode is "online · unverified", syncing is online, only no answer is offline |

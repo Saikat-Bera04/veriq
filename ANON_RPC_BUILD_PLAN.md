@@ -573,82 +573,129 @@ shows the private probe result.
 
 ### S4.1 — Helios in-browser build, traffic through Nox
 
-- [ ] Build/consume the Helios WASM/browser artifact (confirm in M0.1 whether beacon traffic through
-      Nox works; if not, document the split).
-- [ ] Route Helios consensus and execution traffic through the Anon-RPC fetch where supported.
-- [ ] Package the artifact outside the main bundle; lazy-load on `/app` after the anon worker is ready.
-- [ ] Persist Helios checkpoint/data in IndexedDB/localStorage; bootstrap from the pinned checkpoint or
-      the engine's `veriq_getRoot` as a fallback.
-- [ ] Status: `syncing`, `synced`, `failed`, with finalized number/hash, exposed to the badge.
-- [ ] Test: with a recorded light-client update fixture, Helios reaches a finalized root; a bad
-      update is rejected.
-- [ ] Measure sync time in the browser; record it.
+- [x] Consume the Helios browser artifact: `@a16z/helios@0.12.0`, the npm build of the exact commit
+      the engine pins (`2af9b41…`). Pinned in `frontend/dashboard/package.json`.
+- [x] Route Helios consensus and execution traffic through Nox: Helios gets
+      `https://consensus.helios.invalid` / `https://execution.helios.invalid`; `createHeliosFetch`
+      (`src/dashboard/lib/lightclient.ts`) sends only those through `AnonRpcWorker.fetch`. **No
+      split:** M0.1 failed only because Nimbus serves a non-public certificate; Lodestar Sepolia
+      passes through Nox (re-run 2026-11-06, `docs/ANON_RPC_FEASIBILITY.md#s4--helios-in-the-browser-over-nox`).
+- [x] Outside the main bundle: dynamic `import('@a16z/helios')` after the Nox worker is ready
+      (own 4.45 MB chunk, 1.7 MB gzip); started from `Shell` next to `startAnon()`.
+- [x] Persistence: the checkpoint Helios reached (`helios_getCurrentCheckpoint`) is saved in
+      localStorage (`veriq.browserHelios.v1`) and reused on a reload within 5 min. **Bootstrap
+      source changed:** Lodestar serves bootstraps only for the *current* finalized checkpoint, so
+      the pinned checkpoint cannot be used; each start reads it from checkpointz (ethpandaops)
+      through Nox and needs every healthy upstream to agree. `veriq_getRoot` cannot bootstrap
+      Helios (it is an execution block, not a beacon root), so it is the cross-check instead.
+- [x] Status `off | idle | waiting | syncing | synced | failed` with finalized number/hash, sync
+      time and checkpoint, shown on the Light Client page (`BrowserLightClientCard`).
+- [x] Fixture test: `fixtures/browser-helios/sepolia-12076786.json.gz` (recorded through Nox)
+      replayed into the real wasm (`helios-fixture.test.ts`): reaches the recorded root; a forged
+      sync-committee signature and a wrong-slot bootstrap are rejected.
+- [x] Sync time in the browser: 8.4 s after Nox ready (3.7 s), 2026-11-06, Headless Chrome 156.
 
 ### S4.2 — The root comes from browser Helios instead of the engine
 
-- [ ] `veriq_getRoot` remains the fallback/cross-check; the private reader asks the browser Helios for
-      the root when it is synced.
-- [ ] If browser Helios root and engine root disagree → fail closed with a clear error, do not pick
-      one.
-- [ ] Receipt `rootSource` stays `local-light-client`; add a field or warning that the light client ran
-      in the browser (do not change the enum if avoidable).
-- [ ] Test: browser root equal → read verifies; root different → typed mismatch, no value.
+- [x] `createPrivateReader(..., { lightClient })` (SDK): when browser Helios is synced, its finalized
+      block is the one fetched; `veriq_getRoot` is the cross-check, and the fallback while it is
+      not synced/failed/stale (>30 min).
+- [x] Same number, different hash or state root → `RootMismatchError` (`ROOT_MISMATCH`, -32017), no
+      provider asked. Different numbers (one light client a few seconds behind at an epoch
+      boundary) → wait, bounded by `alignTimeoutMs` (30 s), then `ROOT_UNAVAILABLE`. Never picks.
+- [x] The engine checks again: `veriq_verifyProof` accepts `browserRoot` and refuses with
+      `ROOT_MISMATCH` unless it is exactly its pinned block. `rootSource` stays the engine's;
+      the receipt gets a `BROWSER_LIGHT_CLIENT` warning (additive, no enum change).
+- [x] Tests: engine (`read_path.rs`, 5 new), SDK (`private.test.ts`, 9 new), dashboard
+      (`lightclient.test.ts`, 14).
 
-**S4 done when:** the root is produced in the browser and synced over Nox; the engine is not the root
-source in that mode.
+**S4 status (2026-11-06):** the root is produced in the browser and synced over Nox, and the
+engine's root must match it. The engine still verifies the proof against its own root (S5 moves
+verification into the browser).
 
 ## S5 — Verifier in the browser
 
 ### S5.1 — Compile the verifier to WebAssembly (from M0.4)
 
-- [ ] Promote the M0 spike to `backend/crates/verifier-wasm` with a small, stable API:
-      `verify_account`, `verify_storage`, `code_hash_matches`.
-- [ ] Ship the `.wasm` inside the SDK or as a dashboard static asset; lazy-load it.
-- [ ] Keep the same size bounds in WASM.
-- [ ] Test against all existing verifier fixtures (valid, tampered balance, tampered proof, wrong
-      slot, wrong root, absent account, zero slot).
-- [ ] Record artifact size, load time, verify time; publish in `docs/INTEGRATION_REPORT.md`.
+- [x] One verifier, two places: the engine's proof check (`eth_getProof` parsing, account /
+      storage / code-hash checks, claimed-vs-proven) moved into `veriq-verifier::read`
+      (`parse_proof_result`, `verify_read`, `code_hash_matches`); the engine and
+      `backend/crates/verifier-wasm` both call it. Existing engine tests unchanged and green.
+- [x] WASM API (ABI 2): `veriq_verify_read` (the full read), `veriq_verify_account`,
+      `veriq_verify_storage`, `veriq_code_hash_matches`, `veriq_binding` (engine receipt binding),
+      `veriq_abi_version`. Raw alloc/call/free, no wasm-bindgen.
+- [x] Shipped with the SDK as `veriq-client/verifier.wasm` (`frontend/sdk/wasm/`, built by
+      `scripts/build-verifier-wasm.sh`, profile `wasm-release`); `loadVerifier()` in the SDK; the
+      dashboard imports it with `?url` and loads it on the first private read.
+- [x] Same bounds in WASM (64 nodes, 1 KiB/node, request ≤ 2 × 2 MiB).
+- [x] Fixtures (Rust and the shipped .wasm from JS): valid EOA/storage/code, tampered balance,
+      tampered storage value, flipped proof byte, wrong root, uncovered slot, absent account, zero
+      slot (new `fixtures/demo-storage.json`: slot 0 = 42, slot 7 by exclusion), oversized node.
+- [x] Measured: 204,609 B (77,816 gzip); load 56 ms cold; verify 0.2–0.3 ms
+      (`docs/INTEGRATION_REPORT.md` §9).
 
 ### S5.2 — The browser checks proofs itself; the receipt says "verified in the browser"
 
-- [ ] Private reader verifies the proof with WASM before calling the engine; only a proof that passes
-      locally is sent to `veriq_verifyProof` for the trusted receipt (defence in depth).
-- [ ] New privacy/verification marker: `verification.verifierLocation = "browser"` (enum already has
-      it in the SDK/Rust). Make sure the engine accepts it for client proofs and the receipt says so.
-- [ ] If the engine is unavailable, the browser can still show the locally verified value with a
-      clearly labelled "local only, no engine receipt" state (optional; decide before building).
-- [ ] Test: a forged proof is rejected in the browser before any engine call; a valid proof gets a
-      receipt with `verifierLocation: "browser"`.
-- [ ] Test: WASM load failure → fail closed, or fall back to engine verification with an explicit
-      warning (choose one and test it).
+- [x] `createPrivateReader(..., { verifier })`: each proof is checked in the browser against the
+      pinned root first; a proof that fails is never sent to the engine (next provider).
+- [x] `veriq_verifyProof` `verifier: "browser"` → the engine checks again (same code) and sets
+      `verification.verifierLocation = "browser"`; claiming it gets nothing past the engine.
+      Browser and engine values must agree, else `INTERNAL_ERROR`, no value.
+- [x] **Decided: local-only state.** Engine unreachable + browser Helios synced + verifier
+      loaded → the value with a receipt made in the browser (`requestId local-…`, `LOCAL_ONLY`
+      warning, bindings from the Rust code), kept in the tab for the receipt drawer. Without a
+      synced browser root or the verifier: `EngineUnreachableError`, nothing fetched.
+- [x] **Decided: WASM load failure → engine verifies + warning.** Loaded once per reader; on
+      failure `verifier: "unavailable"` and the receipt gets `BROWSER_VERIFIER_UNAVAILABLE`.
+- [x] Tests: engine (`read_path.rs`, 4 new), SDK (`private.test.ts`, 10 new incl. real .wasm),
+      dashboard (`verifier.test.ts`, 4). Live: §9 of the integration report.
 
-**S5 done when:** private mode needs no engine to check the proof and the receipt says the browser
-verified it.
+**S5 status (2026-11-06):** private mode needs no engine to check a proof, receipts say
+`verifierLocation: browser`, and with the engine stopped a read still returns a verified value.
 
 ## S6 — Mainnet
 
 ### S6.1 — Mainnet config: chain ID, Helios checkpoint
 
-- [ ] Add `backend/config/mainnet.toml` (chain id `0x1`, execution/consensus defaults, no secrets).
-- [ ] Add a mainnet checkpoint to `checkpoint.toml` (source documented, different from the consensus
-      RPC) and a `mainnet` example in `.env.example`.
-- [ ] `config.rs` must accept either network without weakening the Sepolia guard (no mixed
-      chain/root).
-- [ ] Receipts record the mainnet chain id and block; SDK types accept it.
-- [ ] Tests: mainnet config loads; wrong-chain provider is rejected; fixture root still works.
+- [x] `VERIQ_NETWORK=sepolia|mainnet` (default sepolia; `veriq_core::Network`). One engine serves
+      one chain; it picks `config/<network>.toml`, the checkpoint file, the probe's expected chain,
+      Helios's network, a per-network Helios data dir, `eth_chainId` and `/health` `chainId`.
+- [x] `backend/config/mainnet.toml` (chain 1) and `checkpoint-mainnet.toml` (`network =
+      "mainnet"`, root from beaconcha.in checkpointz, confirmed canonical + finalized at slot
+      15596192 on the PublicNode beacon API; the engine syncs from Lodestar). `.env.example`
+      has a mainnet block.
+- [x] No mixing: a network file with another chain id, a checkpoint file pinned for another
+      network, and (off Sepolia) a `HELIOS_CHECKPOINT` without `HELIOS_CHECKPOINT_NETWORK` all
+      stop the engine at startup.
+- [x] Receipts: additive `block.chainId` (absent in old receipts, which still parse);
+      `veriq_getRoot` returns `chainId`. SDK schemas accept both as optional.
+- [x] Tests: mainnet config loads; wrong chain / wrong checkpoint network refused; a mainnet
+      engine marks a Sepolia provider "wrong chain"; fixture root verifies on a mainnet engine
+      with `chainId: 1`; `veriq_getRoot` field set updated. Live 2026-11-06: mainnet engine synced
+      in 10 s, USDT balance and slot 0 verified with `chainId: 1`.
 
 ### S6.2 — Tor/Nym on mainnet, Nox on Sepolia
 
-- [ ] Add a transport abstraction so the SDK/dashboard can select `nox` (Sepolia) or `tor`/`nym`
-      (mainnet) without changing the reader.
-- [ ] Implement the mainnet private fetch (Tor SOCKS via a local proxy or a Nym client; decide from
-      available tooling) and document setup.
-- [ ] Network selector follows the chain: Sepolia → Nox, mainnet → Tor/Nym; no silent fallback.
-- [ ] Receipt `privacy.mechanism` is the selected network (`nox`, `tor`, `nym`).
-- [ ] Test: wrong transport for chain → typed error; selected transport used for every provider call.
-- [ ] Live mainnet check with one balance and one storage proof, if an endpoint is available.
+- [x] Network follows the chain: SDK `PRIVATE_NETWORKS = { 1: [nym, tor], 11155111: [nox] }`,
+      `createPrivateReader({ chainId })` throws `PrivacyUnavailableError` for a network that does
+      not carry the chain, and `ChainMismatchError` (client code -3) when the engine's
+      `veriq_getRoot` names another chain (an engine without `chainId` counts as Sepolia).
+- [x] Dashboard: `VITE_CHAIN=sepolia|mainnet` (`lib/chain.ts`) picks the network (Nox / Nym), the
+      keyless providers, and browser Helios's beacon API + checkpointz; `VITE_ANON_NETWORK`
+      overrides within the allowed set. Nym (`@nymproject/mix-fetch` 3.0.1, lazy 6.4 MB gzip
+      chunk) sits behind the same worker interface as Nox; `tor` in the browser is a typed
+      failure. Receipt `privacy.mechanism` is the selected network.
+- [ ] **Tor fetch not shipped** (decided 2026-11-06): `tor` is accepted for mainnet in the SDK, so
+      a Node app can pass its own SOCKS-backed fetch; no Tor implementation or live Tor test yet.
+- [ ] **Nym tunnel recovery:** recreate the tunnel after repeated timeouts (see
+      `docs/ANON_RPC_FEASIBILITY.md#s6--nym-mixfetch-on-mainnet`).
+- [x] Tests: SDK (`private.test.ts` S6, 4), dashboard (`chain.test.ts`, 7). Live 2026-11-06
+      (mainnet engine + `VITE_CHAIN=mainnet`): Nym ready 7.0 s, browser Helios synced over Nym in
+      100.5 s, USDT slot 0 read through Nym (`drpc@anon-rpc:nym`), `chainId: 1`,
+      `verifierLocation: browser`, `BROWSER_LIGHT_CLIENT`, 21 s.
 
-**S6 done when:** mainnet reads go through Tor or Nym and Sepolia remains on Nox.
+**S6 status (2026-11-06):** mainnet reads go through Nym and Sepolia stays on Nox. Open: Tor fetch,
+Nym tunnel recovery.
 
 ## S7 — Docs and pitch
 

@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { errorFromRpc, type Attempt, type ReceiptRecord } from 'veriq-client'
 import { ReceiptBadge, ReceiptCard, type BadgeSize } from 'veriq-client/react'
-import { useEngineSource, useReceipts, veriq } from '../lib/engine'
+import { getLocalReceipt, useEngineSource, useReceipts, veriq } from '../lib/engine'
 import { formatEth, formatTime, methodLabel, toBigInt } from '../lib/format'
 import { ErrorCard, Hash, SampleTag, Skeleton, cx } from './ui'
 
@@ -88,7 +88,8 @@ function DrawerBody({ record, mock }: { record: ReceiptRecord; mock: boolean }) 
 export function ReceiptDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
   const source = useEngineSource()
   const list = useReceipts()
-  const cached = id ? list.data?.data.find((r) => r.id === id) : undefined
+  // A receipt made in this browser (S5 local-only) is not in the engine's store.
+  const cached = id ? (getLocalReceipt(id) ?? list.data?.data.find((r) => r.id === id)) : undefined
   const remote = useQuery({
     queryKey: ['receipt', id],
     queryFn: () => veriq.getReceiptRecord(id ?? ''),

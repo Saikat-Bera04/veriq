@@ -3,6 +3,78 @@ import { TriangleAlert } from 'lucide-react'
 import { useHealth, useReceipts } from '../lib/engine'
 import { formatNumber, timeAgo } from '../lib/format'
 import { Card, CardTitle, Chip, EmptyState, ErrorCard, Hash, HeroPanel, Label, SampleTag, Skeleton, Stagger, TickingNumber, useNow } from '../components/ui'
+import { useBrowserLightClient, type BrowserLightClientStatus } from '../lib/lightclient'
+import { anonNetwork } from '../lib/chain'
+
+const BROWSER_STATE: Record<BrowserLightClientStatus['state'], { label: string; tone: 'ok' | 'warn' | 'err' | 'neutral'; dot: 'live' | 'off' | 'warn' | 'err' }> = {
+  off: { label: 'Off', tone: 'neutral', dot: 'off' },
+  idle: { label: 'Idle', tone: 'neutral', dot: 'off' },
+  waiting: { label: 'Waiting for Nox', tone: 'warn', dot: 'warn' },
+  syncing: { label: 'Syncing', tone: 'warn', dot: 'warn' },
+  synced: { label: 'Synced', tone: 'ok', dot: 'live' },
+  failed: { label: 'Failed', tone: 'err', dot: 'err' },
+}
+
+/**
+ * S4: Helios running in this tab, synced through Nox, next to the engine's light client. On the
+ * same block the two must agree; private reads fail closed (ROOT_MISMATCH) when they do not.
+ */
+export function BrowserLightClientCard({ engine }: { engine?: { number?: number | null; hash?: string | null } }) {
+  const status = useBrowserLightClient()
+  const view = BROWSER_STATE[status.state]
+  const f = status.finalized
+  let agreement: { text: string; tone: 'ok' | 'warn' | 'err' } | null = null
+  if (f && engine?.number != null && engine.hash) {
+    if (engine.number !== f.number) agreement = { text: `Engine at #${formatNumber(engine.number)}, browser at #${formatNumber(f.number)}: reads wait for both to reach the same block`, tone: 'warn' }
+    else if (engine.hash.toLowerCase() === f.hash.toLowerCase()) agreement = { text: 'Same finalized block and hash as the engine', tone: 'ok' }
+    else agreement = { text: 'Different hash for the same block: private reads are refused (ROOT_MISMATCH)', tone: 'err' }
+  }
+  return (
+    <Card>
+      <CardTitle
+        aside={
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip tone={view.tone} dot={view.dot}>
+              <span role="status" aria-label={`Browser light client: ${view.label}`}>{view.label}</span>
+            </Chip>
+            <Chip>Helios · over {anonNetwork()}</Chip>
+          </div>
+        }
+      >
+        Browser light client
+      </CardTitle>
+      <p className="text-sm text-vq-muted -mt-2">
+        {status.state === 'off'
+          ? 'Off (needs Anon-RPC). Private reads use the engine root alone.'
+          : `Helios runs in this tab and syncs every beacon and execution request through ${anonNetwork()}. Private reads use its finalized block, and the engine must report the same one.`}
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+        <div>
+          <Label>Finalized block</Label>
+          <div className="text-2xl font-medium tracking-hero mt-1 tabular-nums">{f ? `#${formatNumber(f.number)}` : '—'}</div>
+          {f && <Hash value={f.hash} head={10} tail={6} />}
+        </div>
+        <div>
+          <Label>Sync time</Label>
+          <div className="font-medium mt-1">{status.syncMs != null ? `${(status.syncMs / 1000).toFixed(1)} s` : '—'}</div>
+        </div>
+        <div>
+          <Label>Checkpoint</Label>
+          <div className="mt-1">{status.checkpoint ? <Hash value={status.checkpoint} head={10} tail={6} /> : '—'}</div>
+          <div className="text-sm text-vq-muted mt-1 break-words">{status.checkpointSource ?? ''}</div>
+        </div>
+      </div>
+      {status.state === 'failed' && status.error && (
+        <p className="text-sm text-vq-err mt-3 break-words">Failed: {status.error}. Private reads use the engine root alone.</p>
+      )}
+      {agreement && (
+        <div className="mt-3">
+          <Chip tone={agreement.tone}>{agreement.text}</Chip>
+        </div>
+      )}
+    </Card>
+  )
+}
 
 export function FinalizedExplainer() {
   return (
@@ -92,6 +164,7 @@ export function LightClientPage() {
           </div>
         </Card>
       </div>
+      <BrowserLightClientCard engine={{ number: lc.finalizedNumber, hash: lc.finalizedHash }} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Card className="lg:col-span-2">
           <CardTitle>Last 20 finalized blocks</CardTitle>

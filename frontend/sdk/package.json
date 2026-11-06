@@ -27,6 +27,7 @@
       "source": "./src/react/styles.css",
       "default": "./dist/styles.css"
     },
+    "./verifier.wasm": "./wasm/veriq_verifier.wasm",
     "./package.json": "./package.json"
   },
   "bin": {
@@ -34,6 +35,7 @@
   },
   "files": [
     "dist",
+    "wasm",
     "README.md"
   ],
   "engines": {

@@ -32,9 +32,15 @@ importers:
 
   frontend/dashboard:
     dependencies:
+      '@a16z/helios':
+        specifier: 0.12.0
+        version: 0.12.0
       '@anon-rpc/browser-harness':
         specifier: 0.4.0
         version: 0.4.0
+      '@nymproject/mix-fetch':
+        specifier: 3.0.1
+        version: 3.0.1
       '@tanstack/react-query':
         specifier: ^5.59.20
         version: 5.105.0(@types/react@18.3.31)(react@18.3.1)
@@ -159,6 +165,9 @@ importers:
         version: 2.1.9(@types/node@22.20.5)(happy-dom@15.11.7)
 
 packages:
+
+  '@a16z/helios@0.12.0':
+    resolution: {integrity: sha512-dOhQQE0sglANuNaNP/lIxxcY6YgYKlZOMMr+rCXQeId8gyuP8qzmA8rHP7tKjEA5Tjw09kEtxOom/9PO33NO0Q==}
 
   '@adraffy/ens-normalize@1.11.1':
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
@@ -931,6 +940,12 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@nymproject/mix-fetch@3.0.1':
+    resolution: {integrity: sha512-5RhL+Yxm3W1ZSfkI9szfOpkKMCD0r1cs3hDJumIlejDZVa4c7gE5Wk+SI4xKo/uP1sBTXZAFk/ekNBCDzzrizA==}
+
+  '@nymproject/mix-tunnel@0.3.1':
+    resolution: {integrity: sha512-6s7CJKCnweDLy7xqOwO/Sk8oTnAnTvmDqXpdoUsaY5BWsSYs5mRoJfiYyNaDUssOMS2V/980jgG8hGFFFKs73w==}
 
   '@prisma/adapter-pg@7.10.1':
     resolution: {integrity: sha512-EP9ruPYHjKP80WZlb5qVaEXKgZjJieBFjAxcBtQnDAHD6+16UN4keVmBh6L/RUpuDQT2FQRbvKNgq5d4Ix+IkQ==}
@@ -2514,6 +2529,10 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
+  uuid@11.1.1:
+    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
+    hasBin: true
+
   valibot@1.4.2:
     resolution: {integrity: sha512-gjdCvJ6d3RyHAneqxMYMW9QMCwYMb3jpOO0IyHZV1bnRHFBHrX3VkIILt5XYR0WhwHiH7Mty8ovuPZ/O3gamrg==}
     peerDependencies:
@@ -2678,6 +2697,11 @@ packages:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
+
+  '@a16z/helios@0.12.0':
+    dependencies:
+      eventemitter3: 5.0.1
+      uuid: 11.1.1
 
   '@adraffy/ens-normalize@1.11.1': {}
 
@@ -3167,6 +3191,12 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
+
+  '@nymproject/mix-fetch@3.0.1':
+    dependencies:
+      '@nymproject/mix-tunnel': 0.3.1
+
+  '@nymproject/mix-tunnel@0.3.1': {}
 
   '@prisma/adapter-pg@7.10.1':
     dependencies:
@@ -4784,6 +4814,8 @@ snapshots:
       picocolors: 1.1.1
 
   util-deprecate@1.0.2: {}
+
+  uuid@11.1.1: {}
 
   valibot@1.4.2(typescript@5.9.3):
     optionalDependencies:

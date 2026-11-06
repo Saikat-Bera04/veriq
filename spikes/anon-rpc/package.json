@@ -8,6 +8,8 @@
     "build:wasm": "sh ./build-wasm.sh"
   },
   "dependencies": {
-    "@anon-rpc/browser-harness": "0.4.0"
+    "@a16z/helios": "0.12.0",
+    "@anon-rpc/browser-harness": "0.4.0",
+    "@nymproject/mix-fetch": "3.0.1"
   }
 }

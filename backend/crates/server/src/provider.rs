@@ -1,13 +1,12 @@
 use std::{
     collections::HashSet,
-    str::FromStr,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use alloy_primitives::{hex, Address, Bytes, B256, U256};
+use alloy_primitives::{hex, Address, Bytes, U256};
 use serde_json::{json, Value};
-use veriq_core::{Account, ErrorCode, VeriqError};
+use veriq_core::{ErrorCode, VeriqError};
 use veriq_light_client::PinnedRoot;
 use veriq_verifier::bounds;
 
@@ -67,19 +66,9 @@ impl ProviderConfig {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct StorageProof {
-    pub key: U256,
-    pub value: U256,
-    pub proof: Vec<Bytes>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ProofBundle {
-    pub account_proof: Vec<Bytes>,
-    pub account: Account,
-    pub storage_proofs: Vec<StorageProof>,
-}
+// The eth_getProof parser and bundle types live in veriq-verifier, shared with the browser
+// verifier (veriq-verifier-wasm).
+pub use veriq_verifier::read::{parse_proof_result, ProofBundle, StorageProof};
 
 #[async_trait::async_trait]
 pub trait ProofFetcher: Send + Sync {
@@ -318,103 +307,11 @@ async fn read_body_limited(mut response: reqwest::Response) -> Result<Vec<u8>, V
 
 /// Parses an `eth_getProof` result. Shared by provider fetches and client-supplied proofs
 /// (`veriq_verifyProof`); nothing here is trusted until the verifier checks it.
-pub(crate) fn parse_proof_result(result: &Value) -> Result<ProofBundle, VeriqError> {
-    let account_proof = parse_bytes_list(
-        result
-            .get("accountProof")
-            .and_then(Value::as_array)
-            .ok_or_else(|| VeriqError::invalid_proof("missing accountProof"))?,
-    )?;
-
-    let account = Account::new(
-        parse_u64(result.get("nonce"))?,
-        parse_u256(result.get("balance"))?,
-        parse_b256(result.get("storageHash"))?,
-        parse_b256(result.get("codeHash"))?,
-    );
-
-    let storage_proofs = result
-        .get("storageProof")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .map(parse_storage_proof)
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
-
-    Ok(ProofBundle {
-        account_proof,
-        account,
-        storage_proofs,
-    })
-}
-
-fn parse_storage_proof(value: &Value) -> Result<StorageProof, VeriqError> {
-    let key = parse_u256(value.get("key"))?;
-    let slot_value = parse_u256(value.get("value"))?;
-    let proof = parse_bytes_list(
-        value
-            .get("proof")
-            .and_then(Value::as_array)
-            .ok_or_else(|| VeriqError::invalid_proof("missing storage proof nodes"))?,
-    )?;
-    Ok(StorageProof {
-        key,
-        value: slot_value,
-        proof,
-    })
-}
-
-fn parse_bytes_list(values: &[Value]) -> Result<Vec<Bytes>, VeriqError> {
-    values
-        .iter()
-        .map(|value| {
-            let encoded = value
-                .as_str()
-                .ok_or_else(|| VeriqError::invalid_proof("proof node is not a string"))?;
-            let encoded = encoded.strip_prefix("0x").unwrap_or(encoded);
-            let decoded = hex::decode(encoded).map_err(|err| {
-                VeriqError::invalid_proof(format!("invalid proof node hex: {err}"))
-            })?;
-            Ok(Bytes::from(decoded))
-        })
-        .collect()
-}
-
-fn parse_b256(value: Option<&Value>) -> Result<B256, VeriqError> {
-    let text = value
-        .and_then(Value::as_str)
-        .ok_or_else(|| VeriqError::invalid_proof("missing 32-byte value"))?;
-    B256::from_str(text).map_err(|err| VeriqError::invalid_proof(format!("invalid B256: {err}")))
-}
-
-fn parse_u64(value: Option<&Value>) -> Result<u64, VeriqError> {
-    let text = value
-        .and_then(Value::as_str)
-        .ok_or_else(|| VeriqError::invalid_proof("missing quantity"))?;
-    let text = text.strip_prefix("0x").unwrap_or(text);
-    u64::from_str_radix(text, 16)
-        .map_err(|err| VeriqError::invalid_proof(format!("invalid u64: {err}")))
-}
-
-fn parse_u256(value: Option<&Value>) -> Result<U256, VeriqError> {
-    let text = value
-        .and_then(Value::as_str)
-        .ok_or_else(|| VeriqError::invalid_proof("missing quantity"))?;
-    let text = text.strip_prefix("0x").unwrap_or(text);
-    if text.is_empty() {
-        return Ok(U256::ZERO);
-    }
-    U256::from_str_radix(text, 16)
-        .map_err(|err| VeriqError::invalid_proof(format!("invalid U256: {err}")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::B256;
+    use veriq_verifier::read::{parse_u256, parse_u64};
 
     #[test]
     fn parses_provider_list() {

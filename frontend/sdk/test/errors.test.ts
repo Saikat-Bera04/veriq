@@ -11,6 +11,7 @@ import {
   PolicyUnsatisfiableError,
   PrivacyUnavailableError,
   ProviderTimeoutError,
+  RootMismatchError,
   RootUnavailableError,
   UnsupportedVerificationError,
   VeriqError,
@@ -28,6 +29,7 @@ const CASES = [
   [-32014, 'POLICY_UNSATISFIABLE', PolicyUnsatisfiableError],
   [-32015, 'PROVIDER_TIMEOUT', ProviderTimeoutError],
   [-32016, 'ALL_PROVIDERS_FAILED', AllProvidersFailedError],
+  [-32017, 'ROOT_MISMATCH', RootMismatchError],
   [-32602, 'INVALID_REQUEST', InvalidRequestError],
   [-32603, 'INTERNAL_ERROR', InternalError],
 ] as const

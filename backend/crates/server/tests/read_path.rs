@@ -14,7 +14,8 @@ use alloy_trie::{
 use async_trait::async_trait;
 use serde_json::json;
 use veriq_core::{
-    AttemptOutcome, ErrorCode, Mechanism, RootSourceKind, VerificationStatus, VeriqError,
+    AttemptOutcome, DelegationSecurityClassification, DelegationStatus, ErrorCode, Mechanism,
+    RootSourceKind, VerificationStatus, VeriqError,
 };
 use veriq_light_client::{
     cached::CachedRoot, fixed::FixedRoot, PinnedRoot, RootSource, RootSourceProvider,
@@ -986,7 +987,7 @@ async fn get_root_names_the_block_a_client_must_fetch_at() {
     assert_eq!(result["stateRoot"], format!("{state_root:#x}"));
     assert_eq!(result["verified"], true);
 
-    // Exactly these five fields, with these JSON types.
+    // Exactly these six fields, with these JSON types (`chainId` added in S6).
     let mut keys: Vec<&str> = result
         .as_object()
         .expect("object")
@@ -996,7 +997,14 @@ async fn get_root_names_the_block_a_client_must_fetch_at() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        ["hash", "number", "rootSource", "stateRoot", "verified"]
+        [
+            "chainId",
+            "hash",
+            "number",
+            "rootSource",
+            "stateRoot",
+            "verified"
+        ]
     );
     assert!(result["number"].is_u64(), "number is a JSON number: {got}");
     assert!(result["rootSource"].is_string());
@@ -1355,4 +1363,377 @@ async fn verify_proof_without_a_root_is_root_unavailable_and_recorded() {
         rows[0].error.as_ref().expect("error row").data.code,
         "ROOT_UNAVAILABLE"
     );
+}
+
+// ---- S4.2: the root also came from a light client in the browser ------------------------
+
+fn browser_root(number: u64, hash: B256, state_root: B256) -> serde_json::Value {
+    json!({"number": number, "hash": format!("{hash:#x}"), "stateRoot": format!("{state_root:#x}")})
+}
+
+#[tokio::test]
+async fn a_matching_browser_root_verifies_and_the_receipt_says_so() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = browser_root(BLOCK_NUMBER, BLOCK_HASH, state_root);
+
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert!(got.get("error").is_none(), "{got}");
+    let receipt = &got["result"]["receipt"];
+    assert_eq!(receipt["verification"]["status"], "verified");
+    // rootSource stays the engine's own source (fixture here, local-light-client live); the
+    // browser check is an additive warning, not a new enum value.
+    assert_eq!(receipt["verification"]["rootSource"], "fixture");
+    let warnings = receipt["warnings"].as_array().expect("warnings");
+    let marker = warnings
+        .iter()
+        .find(|w| w["code"] == "BROWSER_LIGHT_CLIENT")
+        .unwrap_or_else(|| panic!("no browser marker: {receipt}"));
+    assert!(marker["message"].as_str().expect("message").contains("nox"));
+}
+
+#[tokio::test]
+async fn without_a_browser_root_there_is_no_browser_marker() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert!(got.get("error").is_none(), "{got}");
+    assert!(!got["result"]["receipt"]["warnings"]
+        .as_array()
+        .expect("warnings")
+        .iter()
+        .any(|w| w["code"] == "BROWSER_LIGHT_CLIENT"));
+}
+
+#[tokio::test]
+async fn a_browser_root_with_another_state_root_is_a_typed_mismatch_and_recorded() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = browser_root(BLOCK_NUMBER, BLOCK_HASH, B256::repeat_byte(0x44));
+
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["code"], -32017, "{got}");
+    assert_eq!(got["error"]["data"]["code"], "ROOT_MISMATCH");
+    assert!(got.get("result").is_none(), "no value on a mismatch: {got}");
+    let rows = engine.store().list(10).await.expect("list");
+    assert_eq!(
+        rows[0].error.as_ref().expect("error row").data.code,
+        "ROOT_MISMATCH"
+    );
+}
+
+#[tokio::test]
+async fn a_browser_root_for_another_block_number_is_a_mismatch() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = browser_root(BLOCK_NUMBER + 1, BLOCK_HASH, state_root);
+
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "ROOT_MISMATCH", "{got}");
+}
+
+#[tokio::test]
+async fn a_browser_root_must_name_the_block_the_proof_was_fetched_at() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = browser_root(BLOCK_NUMBER, B256::repeat_byte(0x55), state_root);
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{got}");
+
+    let mut input = balance_input(proof_json(&bundle));
+    input["browserRoot"] = json!({"number": "12", "hash": "0x01"});
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{got}");
+}
+
+// ---- S5: the browser checked the proof first ----------------------------------------------
+
+#[tokio::test]
+async fn a_browser_verified_proof_is_checked_again_and_the_receipt_says_browser() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["verifier"] = json!("browser");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert!(got.get("error").is_none(), "{got}");
+    assert_eq!(
+        got["result"]["receipt"]["verification"]["verifierLocation"],
+        "browser"
+    );
+    assert_eq!(
+        got["result"]["receipt"]["verification"]["status"],
+        "verified"
+    );
+}
+
+#[tokio::test]
+async fn claiming_browser_verification_does_not_get_a_forged_proof_through() {
+    let (state_root, mut bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    bundle.account.balance = U256::from(BALANCE + 1_000);
+    let mut input = balance_input(proof_json(&bundle));
+    input["verifier"] = json!("browser");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_PROOF", "{got}");
+}
+
+#[tokio::test]
+async fn without_a_client_verifier_the_engine_is_the_verifier_location() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert_eq!(
+        got["result"]["receipt"]["verification"]["verifierLocation"],
+        "local-engine"
+    );
+}
+
+#[tokio::test]
+async fn an_unavailable_browser_verifier_is_a_receipt_warning() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let mut input = balance_input(proof_json(&bundle));
+    input["verifier"] = json!("unavailable");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    let receipt = &got["result"]["receipt"];
+    assert_eq!(receipt["verification"]["verifierLocation"], "local-engine");
+    assert!(receipt["warnings"]
+        .as_array()
+        .expect("warnings")
+        .iter()
+        .any(|w| w["code"] == "BROWSER_VERIFIER_UNAVAILABLE"));
+
+    let mut input = balance_input(proof_json(&bundle));
+    input["verifier"] = json!("yes please");
+    let got = dispatch(&engine, verify_request(input, None)).await;
+    assert_eq!(got["error"]["data"]["code"], "INVALID_REQUEST", "{got}");
+}
+
+// ---- S6: one engine, one chain ----------------------------------------------------------
+
+#[tokio::test]
+async fn a_sepolia_engine_stamps_its_chain_id_on_receipts_and_the_root() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone());
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert_eq!(
+        got["result"]["receipt"]["block"]["chainId"], 11_155_111,
+        "{got}"
+    );
+    let root = dispatch(&engine, get_root_request()).await;
+    assert_eq!(root["result"]["chainId"], 11_155_111, "{root}");
+    let chain = dispatch(
+        &engine,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "eth_chainId", "params": []}),
+    )
+    .await;
+    assert_eq!(chain["result"], "0xaa36a7");
+}
+
+#[tokio::test]
+async fn a_mainnet_engine_with_a_fixture_root_verifies_and_says_chain_1() {
+    let (state_root, bundle) = fixture();
+    let engine = engine(state_root, bundle.clone()).with_network(veriq_core::Network::Mainnet);
+    let read = engine
+        .read_balance(request("eth_getBalance", json!([])), TARGET)
+        .await
+        .expect("fixture root verifies on mainnet too");
+    assert_eq!(read.receipt.block.chain_id, Some(1));
+
+    let got = dispatch(
+        &engine,
+        verify_request(balance_input(proof_json(&bundle)), None),
+    )
+    .await;
+    assert_eq!(got["result"]["receipt"]["block"]["chainId"], 1, "{got}");
+    let root = dispatch(&engine, get_root_request()).await;
+    assert_eq!(root["result"]["chainId"], 1, "{root}");
+    let chain = dispatch(
+        &engine,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "eth_chainId", "params": []}),
+    )
+    .await;
+    assert_eq!(chain["result"], "0x1");
+}
+
+// ---- EIP-7702 Delegation Guard ---------------------------------------------------------
+
+#[tokio::test]
+async fn delegation_read_detects_eip7702_designator() {
+    let delegate = Address::repeat_byte(0x42);
+    let mut code_bytes = vec![0xef, 0x01, 0x00];
+    code_bytes.extend_from_slice(delegate.as_slice());
+    let code = Bytes::from(code_bytes);
+
+    let (state_root, bundle) = fixture_with_code(code.clone());
+    let engine = engine_with_code(state_root, bundle, code.clone());
+
+    let req = request("veriq_getDelegation", json!([format!("{TARGET:#x}")]));
+    let read = engine
+        .read_delegation(req, TARGET, None)
+        .await
+        .expect("verified delegation read");
+
+    assert_eq!(read.result.status, DelegationStatus::Delegated(delegate));
+    assert_eq!(read.result.delegate_address, Some(delegate));
+    assert_eq!(read.result.code_hash, keccak256(&code));
+    assert_eq!(
+        read.result.security_classification,
+        DelegationSecurityClassification::DelegationDetected
+    );
+    assert!(
+        read.receipt
+            .warnings
+            .iter()
+            .any(|w| w.code == "EIP7702_DELEGATION_DETECTED"),
+        "receipt must include EIP7702_DELEGATION_DETECTED warning"
+    );
+
+    // Also verify RPC dispatch
+    let rpc_res = dispatch(
+        &engine,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 42,
+            "method": "veriq_getDelegation",
+            "params": [format!("{TARGET:#x}")]
+        }),
+    )
+    .await;
+
+    assert_eq!(rpc_res["result"]["isDelegated"], true);
+    assert_eq!(
+        rpc_res["result"]["delegateAddress"],
+        format!("{delegate:#x}").to_lowercase()
+    );
+    assert_eq!(
+        rpc_res["result"]["securityClassification"],
+        "delegation-detected"
+    );
+    assert_eq!(rpc_res["result"]["verified"], true);
+    assert_eq!(
+        rpc_res["result"]["receipt"]["verification"]["status"],
+        "verified"
+    );
+}
+
+#[tokio::test]
+async fn delegation_read_distinguishes_eoa_and_revocation_and_contract() {
+    // 1. Normal EOA (empty code)
+    {
+        let (state_root, bundle) = fixture_with_code(Bytes::new());
+        let engine = engine_with_code(state_root, bundle, Bytes::new());
+        let read = engine
+            .read_delegation(
+                request("veriq_getDelegation", json!([format!("{TARGET:#x}")])),
+                TARGET,
+                None,
+            )
+            .await
+            .expect("read normal eoa");
+        assert_eq!(read.result.status, DelegationStatus::NormalEoa);
+        assert_eq!(read.result.delegate_address, None);
+        assert_eq!(
+            read.result.security_classification,
+            DelegationSecurityClassification::NormalEoa
+        );
+    }
+
+    // 2. Revoked delegation (0xef0100 || 20 zero bytes)
+    {
+        let mut revoked_bytes = vec![0xef, 0x01, 0x00];
+        revoked_bytes.extend_from_slice(Address::ZERO.as_slice());
+        let code = Bytes::from(revoked_bytes);
+        let (state_root, bundle) = fixture_with_code(code.clone());
+        let engine = engine_with_code(state_root, bundle, code);
+        let read = engine
+            .read_delegation(
+                request("veriq_getDelegation", json!([format!("{TARGET:#x}")])),
+                TARGET,
+                None,
+            )
+            .await
+            .expect("read revoked delegation");
+        assert_eq!(read.result.status, DelegationStatus::Revoked);
+        assert_eq!(read.result.delegate_address, None);
+        assert_eq!(
+            read.result.security_classification,
+            DelegationSecurityClassification::DelegationRevoked
+        );
+        assert!(
+            read.receipt
+                .warnings
+                .iter()
+                .any(|w| w.code == "EIP7702_DELEGATION_REVOKED"),
+            "receipt must include EIP7702_DELEGATION_REVOKED warning"
+        );
+    }
+
+    // 3. Normal smart contract
+    {
+        let code = Bytes::from_static(&[0x60, 0x01, 0x60, 0x00, 0x55]);
+        let (state_root, bundle) = fixture_with_code(code.clone());
+        let engine = engine_with_code(state_root, bundle, code);
+        let read = engine
+            .read_delegation(
+                request("veriq_getDelegation", json!([format!("{TARGET:#x}")])),
+                TARGET,
+                None,
+            )
+            .await
+            .expect("read smart contract");
+        assert_eq!(read.result.status, DelegationStatus::Contract);
+        assert_eq!(read.result.delegate_address, None);
+        assert_eq!(
+            read.result.security_classification,
+            DelegationSecurityClassification::SmartContract
+        );
+    }
+}
+
+#[tokio::test]
+async fn hidedelegation_attacker_is_rejected_as_invalid_proof() {
+    let delegate = Address::repeat_byte(0x99);
+    let mut code_bytes = vec![0xef, 0x01, 0x00];
+    code_bytes.extend_from_slice(delegate.as_slice());
+    let code = Bytes::from(code_bytes);
+
+    // The state root and trie account proof commit to `keccak256(code)`
+    let (state_root, bundle) = fixture_with_code(code);
+
+    // The attacker returns empty code `0x` for eth_getCode (HideDelegation attack mode)
+    let lying_code = Bytes::new();
+    let engine = engine_with_code(state_root, bundle, lying_code);
+
+    let result = engine
+        .read_delegation(
+            request("veriq_getDelegation", json!([format!("{TARGET:#x}")])),
+            TARGET,
+            None,
+        )
+        .await;
+
+    // Must fail closed with InvalidProof
+    match result {
+        Err(err) => {
+            assert_eq!(err.code(), ErrorCode::InvalidProof);
+        }
+        Ok(read) => panic!("expected InvalidProof error, got success: {read:?}"),
+    }
 }

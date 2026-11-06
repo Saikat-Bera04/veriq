@@ -15,6 +15,7 @@ import {
   type Policy,
   type VerifiedResult,
   type ReceiptRecord,
+  type DelegationResult,
 } from 'veriq-client'
 import {
   ATTACK_MODES,
@@ -27,8 +28,36 @@ import {
   mockSetMode,
   type AttackMode,
 } from './mock'
-import { getPrivateReader, isAnonEnabled, useAnonMode } from './anon'
+import { getPrivateReader, isAnonEnabled, isBrowserVerifierEnabled, useAnonMode } from './anon'
 
+/**
+ * Receipts made in this browser for reads the engine never saw (S5 local-only: engine down,
+ * browser Helios + browser verifier did the read). Kept for the receipt drawer, this tab only.
+ */
+const localReceipts = new Map<string, ReceiptRecord>()
+const MAX_LOCAL_RECEIPTS = 200
+
+function rememberLocal(result: { value: unknown; receipt: ReceiptRecord['receipt']; attempts: ReceiptRecord['attempts'] }, params: ReceiptRecord['params']) {
+  const receipt = result.receipt
+  if (!receipt || !receipt.identity.requestId.startsWith('local-')) return
+  localReceipts.set(receipt.identity.requestId, {
+    id: receipt.identity.requestId,
+    createdAt: Date.now(),
+    method: receipt.identity.method,
+    params,
+    value: typeof result.value === 'bigint' ? `0x${result.value.toString(16)}` : String(result.value),
+    blockNumber: receipt.block.number,
+    receipt,
+    error: null,
+    attempts: result.attempts,
+  })
+  while (localReceipts.size > MAX_LOCAL_RECEIPTS) localReceipts.delete(localReceipts.keys().next().value!)
+}
+
+/** A receipt made in this browser (id `local-…`), if this tab has one. */
+export function getLocalReceipt(id: string): ReceiptRecord | undefined {
+  return localReceipts.get(id)
+}
 // `||`, not `??`: an empty VITE_* value (an unfilled line in .env, exported by scripts/demo.sh) means "default".
 export const ENGINE_BASE: string = import.meta.env.VITE_ENGINE_URL || '/engine'
 export const ATTACKER_BASE: string = import.meta.env.VITE_ATTACKER_URL || '/attacker'
@@ -153,15 +182,16 @@ async function readMock(address: string, policy: Policy): Promise<ReadOutcome> {
 export async function readBalance(
   address: string,
   policy: Policy = verifiedFinalized,
-  /** `direct`: always the engine's own provider routing (the Attack Lab needs its attacker in it). */
   opts: { path?: 'auto' | 'direct' } = {},
 ): Promise<ReadOutcome> {
-  if (engineSource === 'mock') return readMock(address, policy)
+  // With the browser verifier, a private read can be answered with the engine down (S5).
+  if (engineSource === 'mock' && !isBrowserVerifierEnabled()) return readMock(address, policy)
   const source: Source = 'live'
   try {
     const result = opts.path !== 'direct' && isAnonEnabled()
       ? await (await getPrivateReader(veriq)).readBalance({ address, policy })
       : await veriq.readBalance({ address, policy })
+    rememberLocal(result, { address })
     if (result.attempts.length === 0) {
       try {
         const record = await veriq.getReceiptRecord(result.receipt.identity.requestId)
@@ -190,6 +220,7 @@ export async function readStorage(
     const result = isAnonEnabled()
       ? await (await getPrivateReader(veriq)).readStorage({ address, slot })
       : await veriq.readStorage({ address, slot })
+    rememberLocal(result, { address, slot })
     return { ok: true, result }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err : new Error(String(err)) }
@@ -207,6 +238,72 @@ export function useDemoContractStorage() {
   })
 }
 
+export type DelegationOutcome =
+  | { ok: true; source: Source; result: DelegationResult }
+  | { ok: false; source: Source; error: VeriqError | Error }
+
+export async function readDelegation(
+  address: string,
+  policy: Policy = verifiedFinalized,
+): Promise<DelegationOutcome> {
+  const source: Source = 'live'
+  try {
+    const result = isAnonEnabled()
+      ? await (await getPrivateReader(veriq)).getDelegation({ address, policy })
+      : await veriq.getDelegation({ address, policy })
+    return { ok: true, source, result }
+  } catch (err) {
+    if (isUnreachable(err)) {
+      return {
+        ok: true,
+        source: 'mock',
+        result: {
+          address: address as `0x${string}`,
+          status: { status: 'delegated', delegate: DEMO_CONTRACT_ADDRESS },
+          isDelegated: true,
+          delegateAddress: DEMO_CONTRACT_ADDRESS,
+          codeHash: '0x32e92c63dfb3a033f9cfb42fae9cc57be2faea1534032d184ebffb904c6e9491',
+          delegateCodeHash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+          securityClassification: 'delegation-detected',
+          blockNumber: 7412903,
+          verified: true,
+          receipt: {
+            identity: {
+              requestId: 'mock-delegation-1',
+              method: 'veriq_getDelegation',
+              requestBinding: 'ab'.repeat(32),
+              resultBinding: 'cd'.repeat(32),
+            },
+            block: {
+              number: 7412903,
+              hash: `0x9a3f${'0'.repeat(56)}c21e`,
+              stateRoot: `0x51be${'1'.repeat(56)}07aa`,
+              finalized: true,
+              chainId: 11155111,
+            },
+            verification: {
+              status: 'verified',
+              rootSource: 'local-light-client',
+              verifierLocation: 'local-engine',
+              mechanisms: ['account-proof', 'code-hash'],
+              bootstrap: { source: 'helios', checkpoint: null, checkpointSource: null },
+            },
+            privacy: { transport: isAnonEnabled() ? 'anon-rpc' : 'direct', mechanism: isAnonEnabled() ? 'nox' : null },
+            routing: { comparison: 'not-run', providersTried: 1, providerLabel: 'alchemy', attempts: [] },
+            freshness: { observedAt: Date.now() / 1000, ageSeconds: 12, pinned: true },
+            warnings: [
+              {
+                code: 'EIP7702_DELEGATION_DETECTED',
+                message: `EIP-7702 delegation active: calls execute code from ${DEMO_CONTRACT_ADDRESS}`,
+              },
+            ],
+          },
+        },
+      }
+    }
+    return { ok: false, source, error: err instanceof Error ? err : new Error(String(err)) }
+  }
+}
 // ---------------------------------------------------------------- attacker
 
 let attackerSource: Source | null = null

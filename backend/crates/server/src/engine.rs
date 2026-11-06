@@ -3,19 +3,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use alloy_primitives::{hex, keccak256, Address, Bytes, B256, U256};
+use alloy_primitives::{hex, Address, Bytes, B256, U256};
 use serde::Serialize;
 use serde_json::{json, Value};
 use veriq_core::{
-    binding, AttemptOutcome, Block, BlockPolicy, Bootstrap, Comparison, Consistency, ErrorCode,
-    Identity, Mechanism, Policy, Privacy, PrivacyPolicy, Receipt, RootSourceKind, Routing,
-    RoutingAttempt, Transport, Verification, VerificationStatus, VerifierLocation, VeriqError,
-    Warning,
+    binding, classify_account_code, AttemptOutcome, Block, BlockPolicy, Bootstrap, Comparison,
+    Consistency, DelegationDetectionResult, DelegationSecurityClassification, DelegationStatus,
+    ErrorCode, Identity, Mechanism, Network, Policy, Privacy, PrivacyPolicy, Receipt,
+    RootSourceKind, Routing, RoutingAttempt, Transport, Verification, VerificationStatus,
+    VerifierLocation, VeriqError, Warning,
 };
 use veriq_light_client::{PinnedRoot, RootSource, RootSourceProvider};
 use veriq_router::breaker::{CircuitBreaker, CooldownReason};
 use veriq_router::MAX_PROVIDER_ATTEMPTS;
-use veriq_verifier::{verify_account, verify_storage};
+use veriq_verifier::read::{verify_read, ProvenValue, ReadTarget};
 
 use crate::provider::{parse_proof_result, ProofBundle, ProofClient, ProofFetcher, ProviderConfig};
 use crate::store::{InMemoryReceiptStore, ReceiptStore, StoredError, StoredParams, StoredReceipt};
@@ -69,6 +70,34 @@ pub struct CodeRead {
     pub receipt: Receipt,
 }
 
+#[derive(Debug, Clone)]
+pub struct DelegationRead {
+    pub result: DelegationDetectionResult,
+    pub receipt: Receipt,
+}
+
+impl DelegationRead {
+    pub fn into_value(self) -> Value {
+        let block_number = self.receipt.block.number;
+        let verified = self.receipt.verification.status == VerificationStatus::Verified;
+        let mut val = serde_json::to_value(&self.result).unwrap_or(Value::Null);
+        if let Value::Object(ref mut map) = val {
+            map.insert("blockNumber".to_string(), json!(block_number));
+            map.insert("verified".to_string(), json!(verified));
+            map.insert(
+                "receipt".to_string(),
+                serde_json::to_value(&self.receipt).unwrap_or(Value::Null),
+            );
+        }
+        val
+    }
+}
+
+/// Receipt warning code: the root was cross-checked with a light client in the browser.
+pub const BROWSER_LIGHT_CLIENT: &str = "BROWSER_LIGHT_CLIENT";
+/// Receipt warning code: the client's browser verifier did not load; only the engine checked.
+pub const BROWSER_VERIFIER_UNAVAILABLE: &str = "BROWSER_VERIFIER_UNAVAILABLE";
+
 /// What a client-fetched proof claims to be (`veriq_verifyProof`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProofKind {
@@ -106,6 +135,31 @@ pub struct ClientProof {
     /// Anon-RPC network name for the receipt, e.g. `nox` (same character rules).
     pub network: String,
     pub elapsed_ms: u64,
+    /// The finalized block a light client in the browser reported (S4.2). Optional; when
+    /// present it must be exactly the engine's pinned block, else the read fails closed.
+    pub browser_root: Option<BrowserRoot>,
+    /// What the client says about its own check of this proof (S5). The engine verifies anyway.
+    pub client_verifier: ClientVerifier,
+}
+
+/// `veriq_verifyProof` `verifier`: did the client check the proof itself before sending it?
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClientVerifier {
+    /// Not said (older clients): the engine is the only verifier.
+    #[default]
+    None,
+    /// Checked in the browser first; the receipt says `verifierLocation: browser`.
+    Browser,
+    /// The client has a verifier but it did not load; the receipt gets a warning.
+    Unavailable,
+}
+
+/// A finalized block as seen by a light client running in the client's browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BrowserRoot {
+    pub number: u64,
+    pub hash: B256,
+    pub state_root: B256,
 }
 
 #[derive(Debug, Clone)]
@@ -310,6 +364,8 @@ pub struct Engine {
     stats: Arc<Mutex<HashMap<String, ProviderStats>>>,
     store: Arc<dyn ReceiptStore>,
     cache: Option<Arc<Mutex<VerifiedCache>>>,
+    /// The one chain this engine serves (S6). Receipts and veriq_getRoot carry its id.
+    network: Network,
 }
 
 impl Engine {
@@ -332,12 +388,23 @@ impl Engine {
             stats: Arc::default(),
             store: Arc::new(InMemoryReceiptStore::new()),
             cache: None,
+            network: Network::default(),
         }
     }
 
     /// Serve repeat reads at the same finalized block from already-verified values
     /// (see `VerifiedCache`). Only `consistency: single` reads use it.
     #[must_use]
+    /// The chain this engine serves. Default: Sepolia.
+    pub fn with_network(mut self, network: Network) -> Self {
+        self.network = network;
+        self
+    }
+
+    pub const fn network(&self) -> Network {
+        self.network
+    }
+
     pub fn with_verified_cache(mut self, enabled: bool) -> Self {
         self.cache = enabled.then(Arc::default);
         self
@@ -384,7 +451,12 @@ impl Engine {
         let mut recovered = 0;
         for index in ineligible {
             let provider = &self.providers[index];
-            let caps = veriq_router::probe::probe_endpoint(&provider.label, &provider.url).await;
+            let caps = veriq_router::probe::probe_endpoint_for(
+                &provider.label,
+                &provider.url,
+                self.network.chain_id(),
+            )
+            .await;
             let Some(status) = ProbeStatus::from_capabilities(&caps) else {
                 continue;
             };
@@ -557,6 +629,58 @@ impl Engine {
         Ok(CodeRead { code, receipt })
     }
 
+    pub async fn read_delegation(
+        &self,
+        request: RequestMeta,
+        address: Address,
+        policy: Option<Policy>,
+    ) -> Result<DelegationRead, VeriqError> {
+        let policy = policy.unwrap_or_default();
+        let (value, mut receipt) = self
+            .route(&request, &policy, address, ReadKind::Code)
+            .await?;
+        let code = match value {
+            ReadValue::Code(code) => code,
+            ReadValue::Word(_) => Bytes::new(),
+        };
+        let status = classify_account_code(&code);
+        let is_delegated = status.is_delegated();
+        let delegate_address = status.delegate_address();
+        let code_hash = alloy_primitives::keccak256(&code);
+
+        let security_classification = match &status {
+            DelegationStatus::NormalEoa => DelegationSecurityClassification::NormalEoa,
+            DelegationStatus::Delegated(del) => {
+                receipt.warnings.push(Warning::delegation(*del));
+                DelegationSecurityClassification::DelegationDetected
+            }
+            DelegationStatus::Revoked => {
+                receipt.warnings.push(Warning::delegation_revoked());
+                DelegationSecurityClassification::DelegationRevoked
+            }
+            DelegationStatus::Contract => DelegationSecurityClassification::SmartContract,
+            DelegationStatus::InvalidDesignator => {
+                receipt.warnings.push(Warning::new(
+                    "EIP7702_INVALID_DESIGNATOR",
+                    "Account code begins with 0xef0100 but has invalid length or malformed encoding",
+                ));
+                DelegationSecurityClassification::PotentialRisk
+            }
+        };
+
+        let result = DelegationDetectionResult {
+            address,
+            status,
+            is_delegated,
+            delegate_address,
+            code_hash,
+            delegate_code_hash: None,
+            security_classification,
+        };
+
+        Ok(DelegationRead { result, receipt })
+    }
+
     pub async fn read_storage(
         &self,
         request: RequestMeta,
@@ -710,6 +834,22 @@ impl Engine {
                 input.block_hash, root.number, root.hash
             )));
         }
+        if let Some(browser) = &input.browser_root {
+            // Two trusted roots for the read: they must be the same block, or nothing is
+            // verified. Neither side is picked.
+            if browser.hash != input.block_hash {
+                return Err(VeriqError::invalid_request(
+                    "browserRoot.hash must be the blockHash the proof was fetched at",
+                ));
+            }
+            if browser.number != root.number || browser.state_root != root.state_root {
+                return Err(VeriqError::root_mismatch(format!(
+                    "the browser light client reports block #{} with state root {:#x}; the \
+                     engine's light client has #{} {:#x} with state root {:#x}",
+                    browser.number, browser.state_root, root.number, root.hash, root.state_root
+                )));
+            }
+        }
         let label = format!("{}@anon-rpc:{}", input.provider, input.network);
         let started = Instant::now();
         let verified = parse_proof_result(&input.proof).and_then(|bundle| {
@@ -721,6 +861,24 @@ impl Engine {
         let value = verified?;
 
         let mut warnings = Vec::new();
+        if input.browser_root.is_some() {
+            // Additive marker (no enum change): rootSource stays local-light-client.
+            warnings.push(Warning {
+                code: BROWSER_LIGHT_CLIENT.to_string(),
+                message: format!(
+                    "a light client in the browser, synced over {}, produced this same \
+                     finalized block and state root",
+                    input.network
+                ),
+            });
+        }
+        if input.client_verifier == ClientVerifier::Unavailable {
+            warnings.push(Warning {
+                code: BROWSER_VERIFIER_UNAVAILABLE.to_string(),
+                message: "the browser verifier did not load; only the engine checked this proof"
+                    .to_string(),
+            });
+        }
         if policy.consistency == Consistency::Compare {
             warnings.push(Warning {
                 code: "COMPARE_UNAVAILABLE".to_string(),
@@ -728,7 +886,7 @@ impl Engine {
                     .to_string(),
             });
         }
-        let receipt = receipt(
+        let mut receipt = receipt(
             request,
             &root,
             source,
@@ -745,7 +903,13 @@ impl Engine {
                 transport: Transport::AnonRpc,
                 mechanism: Some(input.network.clone()),
             },
+            self.network,
         );
+        if input.client_verifier == ClientVerifier::Browser {
+            // The browser checked it first and the engine has just checked it again: same code
+            // (veriq_verifier::read), same root. A client that only claims this gains nothing.
+            receipt.verification.verifier_location = VerifierLocation::Browser;
+        }
         Ok((value, receipt))
     }
 
@@ -796,6 +960,7 @@ impl Engine {
                     &self.root.bootstrap(),
                     warnings,
                     DIRECT,
+                    self.network,
                 );
                 return (Ok((value, receipt)), Vec::new());
             }
@@ -935,6 +1100,7 @@ impl Engine {
             &self.root.bootstrap(),
             warnings,
             DIRECT,
+            self.network,
         );
         (Ok((value, receipt)), attempts)
     }
@@ -987,43 +1153,20 @@ impl Engine {
         kind: ReadKind,
         root: &PinnedRoot,
     ) -> Result<ReadValue, VeriqError> {
-        // The provider's claimed account is checked, but only the PROVEN account is used.
-        let proven = verify_account(
-            root.state_root,
-            address,
-            &bundle.account_proof,
-            Some(bundle.account),
-        )?;
-        match kind {
-            ReadKind::Balance => Ok(ReadValue::Word(proven.account.balance)),
-            ReadKind::Nonce => Ok(ReadValue::Word(U256::from(proven.account.nonce))),
-            ReadKind::Code => {
-                let code = code.ok_or_else(|| VeriqError::invalid_proof("code was not fetched"))?;
-                if keccak256(&code) != proven.account.code_hash {
-                    return Err(VeriqError::invalid_proof(
-                        "code hash does not match proven account",
-                    ));
-                }
-                Ok(ReadValue::Code(code))
-            }
-            ReadKind::Storage(slot) => {
-                let storage = bundle
-                    .storage_proofs
-                    .iter()
-                    .find(|proof| proof.key == slot)
-                    .ok_or_else(|| {
-                        VeriqError::invalid_proof("provider omitted the requested storage slot")
-                    })?;
-                let proven_value =
-                    verify_storage(proven.account.storage_root, slot, &storage.proof)?;
-                if proven_value != storage.value {
-                    return Err(VeriqError::invalid_proof(
-                        "claimed storage value does not match proven value",
-                    ));
-                }
-                Ok(ReadValue::Word(proven_value))
-            }
-        }
+        // Shared with the browser verifier (veriq-verifier-wasm): the provider's claimed account
+        // is checked, but only the PROVEN value is returned.
+        let target = match kind {
+            ReadKind::Balance => ReadTarget::Balance,
+            ReadKind::Nonce => ReadTarget::Nonce,
+            ReadKind::Code => ReadTarget::Code,
+            ReadKind::Storage(slot) => ReadTarget::Storage(slot),
+        };
+        Ok(
+            match verify_read(bundle, code, address, target, root.state_root)? {
+                ProvenValue::Word(value) => ReadValue::Word(value),
+                ProvenValue::Code(code) => ReadValue::Code(code),
+            },
+        )
     }
 
     fn cache_get(
@@ -1171,6 +1314,7 @@ fn receipt(
     bootstrap: &Bootstrap,
     mut warnings: Vec<Warning>,
     privacy: Privacy,
+    network: Network,
 ) -> Receipt {
     let status = if source.is_verified() {
         VerificationStatus::Verified
@@ -1198,6 +1342,7 @@ fn receipt(
             hash: root.hash,
             state_root: root.state_root,
             finalized: true,
+            chain_id: Some(network.chain_id()),
         },
         verification: Verification {
             status,

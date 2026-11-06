@@ -18,6 +18,9 @@ import type {
   TrustReceiptSchema,
   VerificationStatusSchema,
   VerifierLocationSchema,
+  DelegationStatusSchema,
+  DelegationSecurityClassificationSchema,
+  DelegationResultSchema,
 } from './schema'
 
 /** A 0x-prefixed hex string. */
@@ -61,4 +64,15 @@ export interface VerifiedResult<T> {
   verified: boolean
   /** Every provider attempt, including rejected ones. Empty if the engine didn't report them. */
   attempts: Attempt[]
+}
+
+/** EIP-7702 delegation detection result from the engine or local private verification. */
+export type DelegationStatus = z.infer<typeof DelegationStatusSchema>
+export type DelegationSecurityClassification = z.infer<typeof DelegationSecurityClassificationSchema>
+export type DelegationResult = z.infer<typeof DelegationResultSchema>
+
+export interface DelegationOptions {
+  address: string
+  policy?: Policy
+  signal?: AbortSignal
 }

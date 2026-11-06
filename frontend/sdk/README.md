@@ -112,6 +112,34 @@ import { presets } from 'veriq-client'
 const strict = veriq.withPolicy(presets.verifiedCompare)
 ```
 
+## Private reads (Anon-RPC)
+
+`createPrivateReader` fetches each proof through an anonymizing `fetch` (e.g. Nox's
+`AnonRpcWorker.fetch`), so providers never see your IP; the engine never contacts them.
+
+```ts
+import { createPrivateReader, loadVerifier } from 'veriq-client'
+import wasmUrl from 'veriq-client/verifier.wasm?url' // ~205 KB, ~78 KB gzip
+
+const reader = createPrivateReader(veriq, {
+  fetch: nox.fetch,
+  network: 'nox',
+  providers: [{ label: 'ethpandaops', url: 'https://rpc.sepolia.ethpandaops.io' }],
+  lightClient,                         // optional: { finalized() } from Helios in the browser
+  verifier: () => loadVerifier(wasmUrl), // optional: check proofs in the browser first
+})
+const { value, receipt } = await reader.readStorage({ address, slot: '0x0' })
+receipt.verification.verifierLocation // 'browser'
+```
+
+- `lightClient`: its finalized block is the one read; the engine's `veriq_getRoot` must be the
+  same block, or the read fails with `RootMismatchError` (`ROOT_MISMATCH`, -32017).
+- `verifier`: the engine's own Rust verifier as WebAssembly. A forged proof is rejected before
+  the engine is asked. If it fails to load, the engine verifies alone and the receipt says
+  `BROWSER_VERIFIER_UNAVAILABLE`.
+- Both together: if the engine is unreachable, the read still returns a verified value with a
+  receipt made in the browser (`LOCAL_ONLY` warning, `requestId` starting `local-`).
+
 ## viem transport
 
 ```ts

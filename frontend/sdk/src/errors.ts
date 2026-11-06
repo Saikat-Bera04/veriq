@@ -7,12 +7,13 @@ export const ERROR_CODES = {
   POLICY_UNSATISFIABLE: -32014,
   PROVIDER_TIMEOUT: -32015,
   ALL_PROVIDERS_FAILED: -32016,
+  ROOT_MISMATCH: -32017,
   INVALID_REQUEST: -32602,
   INTERNAL_ERROR: -32603,
 } as const
 
 /** Client-side codes (not sent by the engine). */
-export const CLIENT_CODES = { ENGINE_UNREACHABLE: -1, SCHEMA_MISMATCH: -2 } as const
+export const CLIENT_CODES = { ENGINE_UNREACHABLE: -1, SCHEMA_MISMATCH: -2, CHAIN_MISMATCH: -3 } as const
 
 export type EngineErrorName = keyof typeof ERROR_CODES
 export type VeriqErrorName = EngineErrorName | keyof typeof CLIENT_CODES | 'UNKNOWN'
@@ -28,6 +29,7 @@ export const ERROR_MEANINGS: Record<EngineErrorName, string> = {
   POLICY_UNSATISFIABLE: 'The policy contradicts itself, e.g. "latest" blocks with verification required.',
   PROVIDER_TIMEOUT: 'The shared deadline ran out before any provider returned a valid proof.',
   ALL_PROVIDERS_FAILED: 'Every eligible provider failed or was cooling down.',
+  ROOT_MISMATCH: 'Two trusted light clients (engine and browser) report different roots for the same finalized block.',
   INVALID_REQUEST: 'The request parameters are malformed (bad address, slot or policy).',
   INTERNAL_ERROR: 'The engine could not complete the request because an internal service is unavailable.',
 }
@@ -41,10 +43,12 @@ export const ERROR_HINTS: Record<VeriqErrorName, string> = {
   POLICY_UNSATISFIABLE: "latest + verification=required can't be proven. Use blockPolicy 'finalized'.",
   PROVIDER_TIMEOUT: 'No valid proof arrived before the deadline. Raise timeoutMs or check provider health.',
   ALL_PROVIDERS_FAILED: 'Every provider failed or is cooling down. Check veriq health for breaker states.',
+  ROOT_MISMATCH: 'Nothing was verified. One light client follows a wrong chain or a bad checkpoint: check both checkpoints and consensus APIs.',
   INVALID_REQUEST: 'Check the address (0x + 40 hex), slot (0x + up to 64 hex) and policy fields.',
   INTERNAL_ERROR: 'Retry shortly; if the error persists, check the engine health endpoint.',
   ENGINE_UNREACHABLE: `No Veriq engine at ${DEFAULT_URL}. Start it with: cd backend && cargo run -p veriq-server`,
   SCHEMA_MISMATCH: 'The engine answered with a shape this SDK does not understand. Make sure SDK and engine versions match.',
+  CHAIN_MISMATCH: 'The engine serves another chain than this reader reads. Point the client at an engine started with the matching VERIQ_NETWORK.',
   UNKNOWN: 'Unexpected engine error. Check the engine logs.',
 }
 
@@ -102,8 +106,12 @@ export class PrivacyUnavailableError extends VeriqError {}
 export class PolicyUnsatisfiableError extends VeriqError {}
 export class ProviderTimeoutError extends VeriqError {}
 export class AllProvidersFailedError extends VeriqError {}
+/** The browser light client and the engine disagree about the same finalized block. */
+export class RootMismatchError extends VeriqError {}
 export class InvalidRequestError extends VeriqError {}
 export class InternalError extends VeriqError {}
+/** The engine serves another chain than the one this client reads (S6). Nothing was read. */
+export class ChainMismatchError extends VeriqError {}
 /** The engine could not be reached (network failure, nothing listening). */
 export class EngineUnreachableError extends VeriqError {}
 /** The engine's answer did not match the receipt schema. `issues` lists readable paths. */
@@ -126,9 +134,11 @@ export const ERROR_CLASSES: Record<number, ErrorClass> = {
   [ERROR_CODES.POLICY_UNSATISFIABLE]: PolicyUnsatisfiableError,
   [ERROR_CODES.PROVIDER_TIMEOUT]: ProviderTimeoutError,
   [ERROR_CODES.ALL_PROVIDERS_FAILED]: AllProvidersFailedError,
+  [ERROR_CODES.ROOT_MISMATCH]: RootMismatchError,
   [ERROR_CODES.INVALID_REQUEST]: InvalidRequestError,
   [ERROR_CODES.INTERNAL_ERROR]: InternalError,
   [CLIENT_CODES.ENGINE_UNREACHABLE]: EngineUnreachableError,
+  [CLIENT_CODES.CHAIN_MISMATCH]: ChainMismatchError,
 }
 
 const ALL_CODES: Record<string, number> = { ...ERROR_CODES, ...CLIENT_CODES }

@@ -11,6 +11,7 @@ import {
   PanelLeftOpen,
   Satellite,
   Server,
+  ShieldAlert,
   SlidersHorizontal,
   Swords,
   TriangleAlert,
@@ -21,6 +22,7 @@ import { LogoIcon } from '@/components/landing/primitives'
 import { ENGINE_DISPLAY, getEngineDisplayAddress, useHealth } from '../lib/engine'
 import { isAnonEnabled, startAnon } from '../lib/anon'
 import { AnonBadge } from './AnonBadge'
+import { startBrowserLightClient } from '../lib/lightclient'
 import { formatNumber } from '../lib/format'
 import { Chip, SampleTag, TickingNumber, cx } from './ui'
 import { ReceiptDrawer } from './ReceiptDrawer'
@@ -37,6 +39,7 @@ interface NavItem {
 export const NAV: NavItem[] = [
   { to: '/app', label: 'Overview', short: 'Overview', title: 'Overview', Icon: LayoutDashboard },
   { to: '/app/feed', label: 'Live feed', short: 'Feed', title: 'Live feed', Icon: Activity },
+  { to: '/app/delegation-guard', label: 'Delegation guard', short: 'Guard', title: 'EIP-7702 Delegation Guard', Icon: ShieldAlert },
   { to: '/app/providers', label: 'Providers', short: 'Providers', title: 'Providers', Icon: Server },
   { to: '/app/light-client', label: 'Light client', short: 'Light', title: 'Light client', Icon: Satellite },
   { to: '/app/attack-lab', label: 'Attack lab', short: 'Attack', title: 'Attack lab', Icon: Swords },
@@ -295,9 +298,13 @@ export function Shell() {
   }, [item.title])
 
   // Join Nox as soon as /app loads, so the first read does not wait for it. startAnon is
-  // idempotent: StrictMode's double effect and hot reloads reuse the one worker.
+  // idempotent: StrictMode's double effect and hot reloads reuse the one worker. Helios in the
+  // browser (S4) starts once Nox is ready and syncs through it; also one per page.
   useEffect(() => {
-    if (isAnonEnabled()) void startAnon()
+    if (isAnonEnabled()) {
+      void startAnon()
+      void startBrowserLightClient()
+    }
   }, [])
 
   const toggle = () => {

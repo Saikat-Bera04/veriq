@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>S4 probe: Helios in the browser over Nox</title>
+  <link rel="icon" href="data:,">
+  <!-- Same import map as index.html, plus the pinned Helios browser build (@a16z/helios 0.12.0,
+       built from the Helios commit the engine pins). -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@a16z/helios": "./node_modules/@a16z/helios/dist/lib.mjs",
+      "@anon-rpc/browser-harness": "./node_modules/@anon-rpc/browser-harness/dist/host.js",
+      "@anon-rpc/harness-core": "./node_modules/@anon-rpc/harness-core/dist/index.js",
+      "@kpstreams/webrtc-client": "./node_modules/@kpstreams/webrtc-client/dist/index.js",
+      "@kpstreams/core": "./node_modules/@kpstreams/core/dist/index.js",
+      "@kpstreams/core/webrtc": "./node_modules/@kpstreams/core/dist/webrtc.js",
+      "@noble/hashes/sha3": "./node_modules/@noble/hashes/esm/sha3.js",
+      "@noble/hashes/crypto": "./node_modules/@noble/hashes/esm/crypto.js"
+    }
+  }
+  </script>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; max-width: 960px; }
+    pre { white-space: pre-wrap; word-break: break-word; border: 1px solid #ddd; border-radius: 6px; padding: 8px; min-height: 240px; }
+  </style>
+</head>
+<body>
+  <h1>S4 probe: Helios in the browser, synced over Nox</h1>
+  <p>Worker: <span id="worker" role="status">idle</span> · Helios: <span id="helios" role="status">idle</span></p>
+  <p><code>?checkpoint=0x…</code> (required, a recent finalized beacon block root from a source other than the
+     beacon API) · <code>?beacon=https://…</code> · <code>?record=1</code> keeps response bodies in
+     <code>window.__s4.recorded</code>.</p>
+  <pre id="log" aria-live="polite"></pre>
+  <script type="module" src="./helios.js"></script>
+</body>
+</html>

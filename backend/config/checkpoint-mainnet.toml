@@ -1,0 +1,12 @@
+# Pinned Helios bootstrap checkpoint for mainnet (VERIQ_NETWORK=mainnet).
+#
+# The checkpoint MUST come from a different source than the consensus RPC, and this file must
+# say network = "mainnet": the engine refuses a checkpoint pinned for another network.
+# A finalized beacon block root; Helios needs one younger than the weak-subjectivity period
+# (about two weeks) on first start, then keeps its own newer checkpoint in HELIOS_DATA_DIR.
+
+network = "mainnet"
+checkpoint = "0x9dc143a50de3d98b881b0695f9fd034fc09c6237670cfef53b1c5f5a667ffe92"
+# Read from beaconcha.in's checkpointz (sync-mainnet.beaconcha.in, every healthy upstream agreed)
+# on 2026-11-06; confirmed canonical and finalized at slot 15596192 on the PublicNode beacon API.
+checkpoint_source = "beaconcha.in checkpointz"

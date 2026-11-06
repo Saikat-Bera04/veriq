@@ -150,8 +150,11 @@ describe('getPrivateReader', () => {
 
 describe('parseProviders', () => {
   it('defaults to PublicNode and parses label=url lists', () => {
-    expect(parseProviders(undefined)).toEqual([{ label: 'publicnode', url: 'https://ethereum-sepolia-rpc.publicnode.com' }])
-    expect(parseProviders('  ')).toHaveLength(1)
+    expect(parseProviders(undefined)).toEqual([
+      { label: 'ethpandaops', url: 'https://rpc.sepolia.ethpandaops.io' },
+      { label: 'publicnode', url: 'https://ethereum-sepolia-rpc.publicnode.com' },
+    ])
+    expect(parseProviders('  ')).toHaveLength(2)
     expect(parseProviders('a=https://a.example, b = https://b.example/rpc')).toEqual([
       { label: 'a', url: 'https://a.example' },
       { label: 'b', url: 'https://b.example/rpc' },

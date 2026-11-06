@@ -1,15 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AllProvidersFailedError,
+  ChainMismatchError,
+  EngineUnreachableError,
+  PRIVATE_NETWORKS,
+  PrivacyUnavailableError,
+  InternalError,
   InvalidProofError,
   InvalidRequestError,
   PolicyUnsatisfiableError,
+  RootMismatchError,
   RootUnavailableError,
   VeriqSchemaError,
+  TrustReceiptSchema,
   createPrivateReader,
   createVeriq,
+  loadVerifier,
 } from 'veriq-client'
-import type { PrivateProvider } from 'veriq-client'
+import type { BrowserLightClient, BrowserRoot, BrowserVerifier, PrivateProvider, VerifyReadInput, VerifyReadOutcome } from 'veriq-client'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { ADDRESS, type Handler, mockEngine, receiptFixture } from './helpers'
 
 const ROOT = { number: 7412903, hash: `0x${'aa'.repeat(32)}`, stateRoot: `0x${'bb'.repeat(32)}`, rootSource: 'local-light-client', verified: true }
@@ -40,7 +50,7 @@ function ok(input: Record<string, unknown>) {
 type Verify = (input: Record<string, unknown>, n: number) => ReturnType<Handler>
 
 /** Engine stand-in. getRoot answers `roots` in turn (the last one repeats); verifyProof answers `verify`. */
-function engine(verify: Verify = (input) => ok(input), roots = [ROOT]) {
+function engine(verify: Verify = (input) => ok(input), roots: Array<typeof ROOT & { chainId?: number }> = [ROOT]) {
   let verifies = 0
   let rootCalls = 0
   const handler: Handler = (method, params) => {
@@ -346,5 +356,290 @@ describe('createPrivateReader', () => {
     }
     expect(message).toMatch(/label/)
     expect(message).not.toContain(KEY)
+  })
+})
+
+describe('S4.2: root from a light client in the browser', () => {
+  const browserOf = (root: typeof ROOT): BrowserRoot => ({ number: root.number, hash: root.hash, stateRoot: root.stateRoot })
+  /** A browser light client that answers `roots` in turn (the last one repeats). */
+  function lightClient(...roots: (BrowserRoot | null | 'throw')[]) {
+    let calls = 0
+    const lc: BrowserLightClient = {
+      finalized: async () => {
+        const r = roots[Math.min(calls++, roots.length - 1)]
+        if (r === 'throw') throw new Error('helios: not synced')
+        return r ?? null
+      },
+    }
+    return { lc, calls: () => calls }
+  }
+  function withLightClient(e: ReturnType<typeof mockEngine>, p: ReturnType<typeof anonFetch>, lc: BrowserLightClient, alignTimeoutMs?: number) {
+    const client = createVeriq({ url: ENGINE_URL, fetch: e.fetch })
+    return createPrivateReader(client, { fetch: p.fetch, network: 'nox', providers: [A, B], lightClient: lc, ...(alignTimeoutMs ? { alignTimeoutMs } : {}) })
+  }
+
+  it('equal roots: the read is fetched at that block and the browser root is sent to the engine', async () => {
+    const e = engine()
+    const p = anonFetch()
+    const r = await withLightClient(e, p, lightClient(browserOf(ROOT)).lc).readBalance({ address: ADDRESS })
+    expect(r.value).toBe(2_000_000_000_000_000_000n)
+    expect(verifyInputs(e)[0]).toMatchObject({ blockHash: ROOT.hash, browserRoot: browserOf(ROOT) })
+    expect(p.calls[0]?.params.at(-1)).toEqual({ blockHash: ROOT.hash })
+  })
+
+  it('hash case does not matter', async () => {
+    const e = engine()
+    const upper = { ...browserOf(ROOT), hash: ROOT.hash.toUpperCase().replace('0X', '0x') }
+    await expect(withLightClient(e, anonFetch(), lightClient(upper).lc).readBalance({ address: ADDRESS })).resolves.toBeDefined()
+  })
+
+  it('same block, different state root: ROOT_MISMATCH, no provider asked, nothing verified', async () => {
+    const e = engine()
+    const p = anonFetch()
+    const lying = { ...browserOf(ROOT), stateRoot: `0x${'ee'.repeat(32)}` }
+    const err = await withLightClient(e, p, lightClient(lying).lc).readBalance({ address: ADDRESS }).catch((x: unknown) => x)
+    expect(err).toBeInstanceOf(RootMismatchError)
+    expect((err as RootMismatchError).codeName).toBe('ROOT_MISMATCH')
+    expect((err as Error).message).toContain(`#${ROOT.number}`)
+    expect(p.calls).toHaveLength(0)
+    expect(verifyCalls(e)).toHaveLength(0)
+  })
+
+  it('same block, different hash: ROOT_MISMATCH', async () => {
+    const e = engine()
+    const other = { ...browserOf(ROOT), hash: `0x${'ab'.repeat(32)}` }
+    await expect(withLightClient(e, anonFetch(), lightClient(other).lc).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(RootMismatchError)
+  })
+
+  it('the browser is one epoch ahead: wait for the engine to reach the same block, then read', async () => {
+    vi.useFakeTimers()
+    const e = engine(undefined, [ROOT, ROOT, ROOT2])
+    const p = anonFetch()
+    const pending = withLightClient(e, p, lightClient(browserOf(ROOT2)).lc).readBalance({ address: ADDRESS })
+    await vi.advanceTimersByTimeAsync(5_000)
+    await expect(pending).resolves.toBeDefined()
+    expect(getRootCalls(e)).toHaveLength(3)
+    expect(verifyInputs(e)[0]).toMatchObject({ blockHash: ROOT2.hash, browserRoot: browserOf(ROOT2) })
+  })
+
+  it('the two never meet: a bounded ROOT_UNAVAILABLE, no provider asked', async () => {
+    vi.useFakeTimers()
+    const e = engine()
+    const p = anonFetch()
+    const pending = withLightClient(e, p, lightClient(browserOf(ROOT2)).lc, 6_000).readBalance({ address: ADDRESS }).catch((x: unknown) => x)
+    await vi.advanceTimersByTimeAsync(10_000)
+    const err = await pending
+    expect(err).toBeInstanceOf(RootUnavailableError)
+    expect((err as Error).message).toContain('did not agree')
+    expect(getRootCalls(e).length).toBeLessThanOrEqual(6)
+    expect(p.calls).toHaveLength(0)
+  })
+
+  it('not synced (null), failed (throws) or malformed: the engine root is used alone, no browserRoot sent', async () => {
+    for (const answer of [null, 'throw' as const, { number: 1.5, hash: '0x1', stateRoot: '0x2' }]) {
+      const e = engine()
+      await withLightClient(e, anonFetch(), lightClient(answer as BrowserRoot | null | 'throw').lc).readBalance({ address: ADDRESS })
+      expect(verifyInputs(e)[0]).not.toHaveProperty('browserRoot')
+      expect(verifyInputs(e)[0]).toMatchObject({ blockHash: ROOT.hash })
+    }
+  })
+
+  it('an engine ROOT_MISMATCH (defence in depth) is not retried on another provider', async () => {
+    const e = engine(() => ({ error: { code: -32017, message: 'roots differ', data: { code: 'ROOT_MISMATCH' } } }))
+    const p = anonFetch()
+    await expect(withLightClient(e, p, lightClient(browserOf(ROOT)).lc).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(RootMismatchError)
+    expect(verifyCalls(e)).toHaveLength(1)
+    expect(new Set(p.calls.map((c) => c.url))).toEqual(new Set([A.url]))
+  })
+
+  it('a moved root re-pins both light clients before fetching again', async () => {
+    const e = engine((input, n) => (n === 0 ? rootMoved : ok(input)), [ROOT, ROOT2])
+    const lc = lightClient(browserOf(ROOT), browserOf(ROOT2))
+    const r = await withLightClient(e, anonFetch(), lc.lc).readBalance({ address: ADDRESS })
+    expect(r.value).toBe(2_000_000_000_000_000_000n)
+    expect(lc.calls()).toBe(2)
+    expect(verifyInputs(e)[1]).toMatchObject({ blockHash: ROOT2.hash, browserRoot: browserOf(ROOT2) })
+  })
+})
+
+describe('S5: proofs checked in the browser first', () => {
+  const browserOf = (root: typeof ROOT): BrowserRoot => ({ number: root.number, hash: root.hash, stateRoot: root.stateRoot })
+  const synced = (root: BrowserRoot | null = browserOf(ROOT)): BrowserLightClient => ({ finalized: async () => root })
+  const honest = (input: VerifyReadInput): VerifyReadOutcome => ({
+    ok: true,
+    value: input.kind === 'code' ? '0x6080' : input.kind === 'storage' ? '0x2a' : '0x1bc16d674ec80000',
+  })
+  function fakeVerifier(answer: (input: VerifyReadInput, n: number) => VerifyReadOutcome = honest) {
+    const inputs: VerifyReadInput[] = []
+    const verifier: BrowserVerifier = {
+      abiVersion: 2,
+      verifyRead: (input) => answer(input, inputs.push(input) - 1),
+      binding: () => 'ab'.repeat(32),
+    }
+    return { verifier, inputs }
+  }
+  /** An engine that is not there: every request fails like a closed port. */
+  const deadEngine = () => {
+    const fetch = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    return { fetch: fetch as unknown as typeof globalThis.fetch, fetchMock: fetch }
+  }
+  function make(engineFetch: typeof globalThis.fetch, p: ReturnType<typeof anonFetch>, extra: Partial<Parameters<typeof createPrivateReader>[1]> = {}) {
+    return createPrivateReader(createVeriq({ url: ENGINE_URL, fetch: engineFetch }), { fetch: p.fetch, network: 'nox', providers: [A, B], ...extra })
+  }
+
+  it('a valid proof is checked in the browser against the pinned root, then by the engine, marked browser', async () => {
+    const e = engine()
+    const v = fakeVerifier()
+    const r = await make(e.fetch, anonFetch(), { verifier: v.verifier }).readBalance({ address: ADDRESS })
+    expect(r.value).toBe(2_000_000_000_000_000_000n)
+    expect(v.inputs[0]).toMatchObject({ stateRoot: ROOT.stateRoot, address: ADDRESS, kind: 'balance', proof: PROOF })
+    expect(verifyInputs(e)[0]).toMatchObject({ verifier: 'browser' })
+  })
+
+  it('a forged proof is rejected in the browser and never reaches the engine; the next provider is asked', async () => {
+    const e = engine()
+    const v = fakeVerifier((input, n) => (n === 0 ? { ok: false, code: 'INVALID_PROOF', error: 'claimed account does not match proven account' } : honest(input)))
+    const p = anonFetch()
+    const r = await make(e.fetch, p, { verifier: v.verifier }).readBalance({ address: ADDRESS })
+    expect(verifyCalls(e)).toHaveLength(1)
+    expect(verifyInputs(e)[0]).toMatchObject({ provider: 'beta', verifier: 'browser' })
+    expect(r.receipt.routing.providerLabel).toBe('beta@anon-rpc:nox')
+  })
+
+  it('every provider forged: InvalidProofError, the engine was never asked to verify', async () => {
+    const e = engine()
+    const v = fakeVerifier(() => ({ ok: false, code: 'INVALID_PROOF', error: 'account proof: root mismatch' }))
+    const err = await make(e.fetch, anonFetch(), { verifier: v.verifier }).readBalance({ address: ADDRESS }).catch((x: unknown) => x)
+    expect(err).toBeInstanceOf(InvalidProofError)
+    expect((err as Error).message).toMatch(/rejected in the browser/)
+    expect(verifyCalls(e)).toHaveLength(0)
+  })
+
+  it('the verifier does not load: loaded once, the engine verifies and is told (BROWSER_VERIFIER_UNAVAILABLE)', async () => {
+    const e = engine()
+    const load = vi.fn(async (): Promise<BrowserVerifier> => {
+      throw new Error('HTTP 404')
+    })
+    const reader = make(e.fetch, anonFetch(), { verifier: load })
+    await reader.readBalance({ address: ADDRESS })
+    await reader.readNonce({ address: ADDRESS })
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(verifyInputs(e).map((i) => i.verifier)).toEqual(['unavailable', 'unavailable'])
+  })
+
+  it('engine unreachable, browser light client synced, verifier loaded: a local-only, browser-made receipt', async () => {
+    const dead = deadEngine()
+    const v = fakeVerifier()
+    const p = anonFetch()
+    const r = await make(dead.fetch, p, { verifier: v.verifier, lightClient: synced() }).readStorage({ address: ADDRESS, slot: '0x0' })
+    expect(r.value).toBe(`0x${'0'.repeat(62)}2a`)
+    expect(r.verified).toBe(true)
+    expect(() => TrustReceiptSchema.parse(r.receipt)).not.toThrow()
+    expect(r.receipt.verification).toMatchObject({ status: 'verified', verifierLocation: 'browser', rootSource: 'local-light-client', mechanisms: ['account-proof', 'storage-proof'] })
+    expect(r.receipt.identity.requestId).toMatch(/^local-/)
+    expect(r.receipt.block).toEqual({ number: ROOT.number, hash: ROOT.hash, stateRoot: ROOT.stateRoot, finalized: true })
+    expect(r.receipt.privacy).toEqual({ transport: 'anon-rpc', mechanism: 'nox' })
+    expect(r.receipt.warnings.map((w) => w.code)).toEqual(['LOCAL_ONLY', 'BROWSER_LIGHT_CLIENT'])
+    expect(r.attempts).toEqual([expect.objectContaining({ provider: 'alpha@anon-rpc:nox', outcome: 'ok' })])
+    // The provider was asked at the browser light client's block.
+    expect(p.calls[0]?.params.at(-1)).toEqual({ blockHash: ROOT.hash })
+  })
+
+  it('engine reachable for getRoot but gone for verifyProof: still answered locally', async () => {
+    let calls = 0
+    const e = engine()
+    const flaky = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (calls++ > 0) throw new TypeError('Failed to fetch')
+      return e.fetch(input, init)
+    }) as typeof globalThis.fetch
+    const r = await make(flaky, anonFetch(), { verifier: fakeVerifier().verifier, lightClient: synced() }).readBalance({ address: ADDRESS })
+    expect(r.receipt.warnings[0]?.code).toBe('LOCAL_ONLY')
+  })
+
+  it('engine unreachable without a synced browser light client, or without the verifier: EngineUnreachableError', async () => {
+    const p = anonFetch()
+    await expect(make(deadEngine().fetch, p, { verifier: fakeVerifier().verifier }).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(EngineUnreachableError)
+    await expect(make(deadEngine().fetch, p, { verifier: fakeVerifier().verifier, lightClient: synced(null) }).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(EngineUnreachableError)
+    const broken = async (): Promise<BrowserVerifier> => {
+      throw new Error('no wasm')
+    }
+    await expect(make(deadEngine().fetch, p, { verifier: broken, lightClient: synced() }).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(EngineUnreachableError)
+    expect(p.calls).toHaveLength(0) // nothing fetched that could not be verified
+  })
+
+  it('browser and engine proving different values from one proof: InternalError, no value', async () => {
+    const e = engine((input) => ({ result: { value: '0x1', receipt: anonReceipt(String(input.provider)) } }))
+    await expect(make(e.fetch, anonFetch(), { verifier: fakeVerifier().verifier }).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(InternalError)
+  })
+
+  describe('with the real .wasm and a real Sepolia proof (fixtures/demo-storage.json)', () => {
+    const demo = JSON.parse(readFileSync(fileURLToPath(new URL('../../../fixtures/demo-storage.json', import.meta.url)), 'utf8')) as {
+      address: string
+      block: { number: number; hash: string; stateRoot: string }
+      proof: { storageProof: { value: string }[] }
+    }
+    const wasm = () => loadVerifier(readFileSync(fileURLToPath(new URL('../wasm/veriq_verifier.wasm', import.meta.url))))
+    const lc = synced({ number: demo.block.number, hash: demo.block.hash, stateRoot: demo.block.stateRoot })
+
+    it('no engine at all: slot 0 = 42, verified in the browser, receipt bindings from the Rust code', async () => {
+      const p = anonFetch(() => ({ result: demo.proof }))
+      const r = await make(deadEngine().fetch, p, { verifier: wasm, lightClient: lc }).readStorage({ address: demo.address, slot: '0x0' })
+      expect(BigInt(r.value)).toBe(42n)
+      expect(r.receipt.verification.verifierLocation).toBe('browser')
+      expect(r.receipt.identity.resultBinding).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('a provider that lies about slot 0 is caught in the browser', async () => {
+      const lie = JSON.parse(JSON.stringify(demo.proof)) as typeof demo.proof
+      lie.storageProof[0]!.value = '0x2b'
+      const p = anonFetch(() => ({ result: lie }))
+      await expect(make(deadEngine().fetch, p, { verifier: wasm, lightClient: lc }).readStorage({ address: demo.address, slot: '0x0' })).rejects.toBeInstanceOf(InvalidProofError)
+    })
+  })
+})
+
+describe('S6: the private network follows the chain', () => {
+  const reader = (network: string, chainId: number, roots: Array<typeof ROOT & { chainId?: number }> = [ROOT], p = anonFetch()) =>
+    createPrivateReader(createVeriq({ url: ENGINE_URL, fetch: engine(undefined, roots).fetch }), { fetch: p.fetch, network, providers: [A], chainId })
+
+  it('Nox on Sepolia, Nym or Tor on mainnet', () => {
+    expect(PRIVATE_NETWORKS).toEqual({ 1: ['nym', 'tor'], 11155111: ['nox'] })
+    expect(() => reader('nox', 11155111)).not.toThrow()
+    expect(() => reader('nym', 1)).not.toThrow()
+    expect(() => reader('tor', 1)).not.toThrow()
+  })
+
+  it('a wrong network for the chain is PrivacyUnavailableError before anything is sent', () => {
+    const p = anonFetch()
+    let err: unknown
+    try {
+      reader('nox', 1, [ROOT], p)
+    } catch (e) {
+      err = e
+    }
+    expect(err).toBeInstanceOf(PrivacyUnavailableError)
+    expect((err as Error).message).toMatch(/"nox" does not carry chain 1; use "nym" or "tor"/)
+    expect(() => reader('nym', 11155111)).toThrow(PrivacyUnavailableError)
+    expect(() => reader('nox', 10)).toThrow(/no private network is known for chain 10/)
+    expect(p.calls).toHaveLength(0)
+  })
+
+  it('an engine on another chain is ChainMismatchError; no provider is asked', async () => {
+    const p = anonFetch()
+    const mainnetReader = reader('nym', 1, [{ ...ROOT, chainId: 11155111 }], p)
+    await expect(mainnetReader.readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(ChainMismatchError)
+    // An engine from before S6 reports no chainId: it can only be Sepolia.
+    await expect(reader('nym', 1, [ROOT], p).readBalance({ address: ADDRESS })).rejects.toBeInstanceOf(ChainMismatchError)
+    expect(p.calls).toHaveLength(0)
+  })
+
+  it('the matching engine reads normally', async () => {
+    const p = anonFetch()
+    const r = await reader('nym', 1, [{ ...ROOT, chainId: 1 }], p).readBalance({ address: ADDRESS })
+    expect(r.value).toBe(2_000_000_000_000_000_000n)
+    expect(new Set(p.calls.map((c) => c.url))).toEqual(new Set([A.url]))
+    await expect(reader('nox', 11155111, [ROOT]).readBalance({ address: ADDRESS })).resolves.toBeDefined()
   })
 })

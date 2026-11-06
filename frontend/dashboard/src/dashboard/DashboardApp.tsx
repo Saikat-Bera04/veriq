@@ -11,6 +11,7 @@ import { LightClientPage } from './pages/LightClient'
 import { AttackLabPage } from './pages/AttackLab'
 import { PolicyPage } from './pages/Policy'
 import { DevelopersPage } from './pages/Developers'
+import { DelegationGuardPage } from './pages/DelegationGuard'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ export default function DashboardApp() {
             <Route path="/app" element={<Shell />}>
               <Route index element={<OverviewPage />} />
               <Route path="feed" element={<FeedPage />} />
+              <Route path="delegation-guard" element={<DelegationGuardPage />} />
               <Route path="providers" element={<ProvidersPage />} />
               <Route path="light-client" element={<LightClientPage />} />
               <Route path="attack-lab" element={<AttackLabPage />} />

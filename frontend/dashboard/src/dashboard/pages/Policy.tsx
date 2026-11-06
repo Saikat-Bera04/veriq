@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { VeriqError, verifiedFinalized, type Policy } from 'veriq-client'
 import { readBalance, type ReadOutcome } from '../lib/engine'
-import { ANON_NETWORK, transportLabel, useAnonMode } from '../lib/anon'
+import { anonNetwork, isAnonEnabled, transportLabel, useAnonMode } from '../lib/anon'
 import { DEMO_ADDRESS } from '../lib/mock'
 import { formatEth } from '../lib/format'
 import { AttemptsTimeline } from '../components/ReceiptDrawer'
@@ -165,7 +165,7 @@ export function PolicyPage() {
           <CardTitle>Sent to the engine</CardTitle>
           <pre className="text-xs font-mono bg-vq-bg border border-vq-border rounded-xl p-4 overflow-auto">
             {JSON.stringify(
-              readMode === 'private'
+              readMode === 'private' && isAnonEnabled()
                 ? {
                     method: 'veriq_verifyProof',
                     params: [
@@ -173,9 +173,9 @@ export function PolicyPage() {
                         kind: 'balance',
                         address: address.trim(),
                         blockHash: '<from veriq_getRoot>',
-                        proof: `<eth_getProof, fetched through ${ANON_NETWORK}>`,
+                        proof: `<eth_getProof, fetched through ${anonNetwork()}>`,
                         provider: '<provider label>',
-                        network: ANON_NETWORK,
+                        network: anonNetwork(),
                       },
                       policy,
                     ],

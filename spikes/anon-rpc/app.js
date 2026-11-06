@@ -9,8 +9,15 @@ import { AnonRpcWorker } from '@anon-rpc/browser-harness'
 export const NOX_SEPOLIA = '0x35133267A8F7EC35046a83DCA0f4Ca8A6e1b7A9A'
 /** Keyless Sepolia RPC. Also the bootstrap provider for reading the specifier (direct, once). */
 export const PUBLIC_RPC = 'https://ethereum-sepolia-rpc.publicnode.com'
-/** Keyless Sepolia beacon API (the HELIOS_CONSENSUS_RPC default in .env.example). */
-export const BEACON_API = 'https://unstable.sepolia.beacon-api.nimbus.team'
+/**
+ * Keyless Sepolia beacon API (the HELIOS_CONSENSUS_RPC default in .env.example).
+ * `?beacon=https://…` tries another one (S4.1 re-ran M0.1 against lodestar-sepolia.chainsafe.io).
+ */
+const BEACON_OVERRIDE = new URLSearchParams(location.search).get('beacon')
+export const BEACON_API =
+  BEACON_OVERRIDE && /^https:\/\/[A-Za-z0-9.-]+$/.test(BEACON_OVERRIDE)
+    ? BEACON_OVERRIDE
+    : 'https://unstable.sepolia.beacon-api.nimbus.team'
 
 const logEl = document.getElementById('log')
 const statusEl = document.getElementById('status')
