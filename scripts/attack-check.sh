@@ -183,8 +183,8 @@ for kind in balance nonce code; do HONEST[$kind]="$(engine_read "$kind")"; done
 echo "honest claims: $(py '"balance=%s nonce=%s code=%d bytes" % (d["balance"], d["proofNonce"], max(len(d["code"] or "0x") // 2 - 1, 0))' "$BASE")"
 
 # mode -> reads to check, and what the attacker's attempt must be.
-declare -A READS=([value]="balance" [proof]="balance nonce code" [wrongblock]="balance" [outage]="balance" [nonce]="nonce balance" [code]="code")
-for mode in value proof wrongblock outage nonce code; do
+declare -A READS=([value]="balance" [proof]="balance nonce code" [wrongblock]="balance" [outage]="balance" [nonce]="nonce balance" [code]="code" [hidedelegation]="code")
+for mode in value proof wrongblock outage nonce code hidedelegation; do
   echo
   echo "mode=$mode"
   curl -s -X POST "$ATTACKER/mode" -H 'content-type: application/json' -d "{\"mode\":\"$mode\"}" >/dev/null
@@ -201,6 +201,7 @@ for mode in value proof wrongblock outage nonce code; do
              && ok "proxy: nonce claim is +1 in eth_getProof and eth_getTransactionCount" || bad "proxy: nonce not forged" ;;
     code) py 'd["code"] != json.loads(sys.argv[3])["code"] and json.loads(sys.argv[3])["proofNonce"] == d["proofNonce"]' "$C" "$BASE" | grep -q True \
              && ok "proxy: eth_getCode returns altered code (proof left honest)" || bad "proxy: code not forged" ;;
+    hidedelegation) [[ "$(py 'd["code"]' "$C")" == "0x" ]] && ok "proxy: eth_getCode returns 0x (empty code) to hide delegation" || bad "proxy: hidedelegation not forged" ;;
   esac
 
   # 2. the engine rejects the forgery and returns the honest proven value
