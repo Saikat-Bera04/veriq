@@ -21,6 +21,18 @@ describe('TrustReceipt schema', () => {
     expect(keys(shape.freshness.shape)).toEqual(['ageSeconds', 'observedAt', 'pinned'])
   })
 
+  it('accepts an anon-rpc receipt with the network as the privacy mechanism', () => {
+    const base = receiptFixture() as unknown as Record<string, Record<string, unknown>>
+    const anon = {
+      ...base,
+      privacy: { transport: 'anon-rpc', mechanism: 'nox' },
+      routing: { ...base.routing, providerLabel: 'publicnode@anon-rpc:nox' },
+    }
+    const parsed = TrustReceiptSchema.parse(anon)
+    expect(parsed.privacy).toEqual({ transport: 'anon-rpc', mechanism: 'nox' })
+    expect(parsed.routing.providerLabel).toBe('publicnode@anon-rpc:nox')
+  })
+
   it('reports a missing stateRoot with a readable path', () => {
     const bad = receiptFixture() as unknown as { block: Record<string, unknown> }
     delete bad.block.stateRoot
