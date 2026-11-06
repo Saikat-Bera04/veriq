@@ -1,0 +1,60 @@
+[package]
+name = "veriq-integration-tests"
+description = "End-to-end engine tests: real HTTP engine, mock RPC providers, no network"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+autotests = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+alloy-trie.workspace = true
+axum.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing-subscriber.workspace = true
+veriq-light-client = { path = "../../crates/light-client" }
+veriq-router = { path = "../../crates/router" }
+veriq-server = { path = "../../crates/server" }
+
+[[test]]
+name = "outage"
+path = "outage.rs"
+
+[[test]]
+name = "wrong_block"
+path = "wrong_block.rs"
+
+[[test]]
+name = "wrong_chain"
+path = "wrong_chain.rs"
+
+[[test]]
+name = "unsupported"
+path = "unsupported.rs"
+
+[[test]]
+name = "policy"
+path = "policy.rs"
+
+[[test]]
+name = "logs_redaction"
+path = "logs_redaction.rs"
+
+[[test]]
+name = "privacy_required"
+path = "privacy_required.rs"
+
+[[test]]
+name = "live"
+path = "live.rs"
+
+[lints]
+workspace = true
