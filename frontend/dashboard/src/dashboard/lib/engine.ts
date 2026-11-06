@@ -27,6 +27,7 @@ import {
   mockSetMode,
   type AttackMode,
 } from './mock'
+import { getPrivateReader, isAnonEnabled, useAnonMode } from './anon'
 
 // `||`, not `??`: an empty VITE_* value (an unfilled line in .env, exported by scripts/demo.sh) means "default".
 export const ENGINE_BASE: string = import.meta.env.VITE_ENGINE_URL || '/engine'
@@ -144,11 +145,23 @@ async function readMock(address: string, policy: Policy): Promise<ReadOutcome> {
   }
 }
 
-export async function readBalance(address: string, policy: Policy = verifiedFinalized): Promise<ReadOutcome> {
+/**
+ * Balance read. With Anon-RPC on (the default) the proof is fetched through Nox and verified by the
+ * engine; if Nox is not available the read fails. It never quietly goes direct instead. Sample data
+ * is used only when the engine itself is unreachable.
+ */
+export async function readBalance(
+  address: string,
+  policy: Policy = verifiedFinalized,
+  /** `direct`: always the engine's own provider routing (the Attack Lab needs its attacker in it). */
+  opts: { path?: 'auto' | 'direct' } = {},
+): Promise<ReadOutcome> {
   if (engineSource === 'mock') return readMock(address, policy)
   const source: Source = 'live'
   try {
-    const result = await veriq.readBalance({ address, policy })
+    const result = opts.path !== 'direct' && isAnonEnabled()
+      ? await (await getPrivateReader(veriq)).readBalance({ address, policy })
+      : await veriq.readBalance({ address, policy })
     if (result.attempts.length === 0) {
       try {
         const record = await veriq.getReceiptRecord(result.receipt.identity.requestId)
@@ -168,21 +181,26 @@ export type StorageReadOutcome =
   | { ok: true; result: VerifiedResult<Hex> }
   | { ok: false; error: Error }
 
-/** Read contract storage through veriq_readStorage. Never substitute sample state. */
+/** Contract storage: through Nox when Anon-RPC is on, else veriq_readStorage. Never sample state. */
 export async function readStorage(
   address: string = DEMO_CONTRACT_ADDRESS,
   slot: string = DEMO_CONTRACT_SLOT,
 ): Promise<StorageReadOutcome> {
   try {
-    return { ok: true, result: await veriq.readStorage({ address, slot }) }
+    const result = isAnonEnabled()
+      ? await (await getPrivateReader(veriq)).readStorage({ address, slot })
+      : await veriq.readStorage({ address, slot })
+    return { ok: true, result }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err : new Error(String(err)) }
   }
 }
 
 export function useDemoContractStorage() {
+  // The read path is part of the key: switching private <-> direct reads again on the new path.
+  const mode = useAnonMode()
   return useQuery({
-    queryKey: ['demo-contract-storage', DEMO_CONTRACT_ADDRESS, DEMO_CONTRACT_SLOT],
+    queryKey: ['demo-contract-storage', DEMO_CONTRACT_ADDRESS, DEMO_CONTRACT_SLOT, mode],
     queryFn: () => readStorage(),
     refetchInterval: 30_000,
     retry: false,

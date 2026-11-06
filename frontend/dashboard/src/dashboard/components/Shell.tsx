@@ -19,6 +19,8 @@ import {
 } from 'lucide-react'
 import { LogoIcon } from '@/components/landing/primitives'
 import { ENGINE_DISPLAY, getEngineDisplayAddress, useHealth } from '../lib/engine'
+import { isAnonEnabled, startAnon } from '../lib/anon'
+import { AnonBadge } from './AnonBadge'
 import { formatNumber } from '../lib/format'
 import { Chip, SampleTag, TickingNumber, cx } from './ui'
 import { ReceiptDrawer } from './ReceiptDrawer'
@@ -227,6 +229,7 @@ function TopBar({ title }: { title: string }) {
             )}
           </Chip>
           {mock && <SampleTag />}
+          <AnonBadge />
         </div>
       </div>
     </header>
@@ -290,6 +293,12 @@ export function Shell() {
   useEffect(() => {
     document.title = `${item.title} · Veriq`
   }, [item.title])
+
+  // Join Nox as soon as /app loads, so the first read does not wait for it. startAnon is
+  // idempotent: StrictMode's double effect and hot reloads reuse the one worker.
+  useEffect(() => {
+    if (isAnonEnabled()) void startAnon()
+  }, [])
 
   const toggle = () => {
     setCollapsed((c) => {

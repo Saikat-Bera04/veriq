@@ -64,6 +64,15 @@ describe('ReceiptCard', () => {
     expect(screen.getByText('local light client (Helios)')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Download receipt.json/ })).toBeTruthy()
   })
+
+  it('shows the transport with its network for a private read, and direct unchanged', () => {
+    const anon = receiptFixture({ privacy: { transport: 'anon-rpc', mechanism: 'nox' } })
+    const { rerender } = render(<ReceiptCard receipt={anon} value={1n} />)
+    expect(screen.getByText('anon-rpc (nox)')).toBeTruthy()
+    rerender(<ReceiptCard receipt={receiptFixture()} value={1n} />)
+    expect(screen.getByText('direct')).toBeTruthy()
+    expect(screen.queryByText(/anon-rpc/)).toBeNull()
+  })
 })
 
 describe('EngineStatus', () => {

@@ -66,6 +66,34 @@ pnpm --filter veriq-dashboard smoke         # live: footer "Helios synced", nume
 # engine started with VERIQ_ROOT_SOURCE=dev-untrusted VERIQ_DEV_ALLOW_UNTRUSTED_ROOT=1:
 pnpm --filter veriq-dashboard smoke -- --mode dev   # footer "Engine online · unverified (dev)", DEV MODE badge
 pnpm --filter veriq-dashboard smoke -- --base https://your-host --no-attacks
+pnpm --filter veriq-dashboard smoke -- --anon        # also: private reads through Nox (below)
 ```
 
 Set `BROWSER_BIN` if the browser is not in a standard location.
+
+Without `--anon` the page checks run in **Direct mode**, as before Anon-RPC. With `--anon` the app keeps
+its default (private reads through Nox) and the smoke also checks, in order:
+
+1. the header badge reaches `Anon-RPC: ready (nox)` after `/app` loads (up to 180 s, `--anon-ready-ms`);
+2. Overview reads the demo storage slot through Nox (`Fetched via anon-rpc · nox`), and its receipt
+   drawer shows `Transport anon-rpc (nox)` and a `provider@anon-rpc:nox` attempt; the stored receipt
+   from `/engine/receipts/:id` has `privacy.transport = anon-rpc` (skipped if that route is not reachable);
+3. Policy runs a balance read through Nox, with `provider@anon-rpc:nox` in the timeline;
+4. with the PublicNode bootstrap request blocked, the badge shows `Anon-RPC: failed — …` and
+   **Use direct** still reads the slot (`Fetched via direct`).
+
+**`--anon` needs the real thing.** It joins the live Nox mixnet on Sepolia (specifier
+`0x35133267A8F7EC35046a83DCA0f4Ca8A6e1b7A9A`), reads the specifier once from PublicNode, and fetches proofs
+from PublicNode through Nox, so it needs internet access, a running engine with a live (Helios) root, and
+a browser that allows WebRTC. There is no offline version: the unit tests cover the same paths with a fake
+worker (`src/dashboard/lib/anon.test.tsx`, `components/AnonBadge.test.tsx`, `lib/engine.test.ts`).
+
+### Read path: private by default
+
+`/app` starts the Nox worker on load (`lib/anon.ts`, one worker per page). Balance and storage reads on
+Overview and Policy go through `createPrivateReader`; the header badge shows `Anon-RPC: connecting…`,
+`ready (nox)`, `failed — reason` or `Direct mode`, and **Use direct** / **Use Anon-RPC** switches the path
+for this tab (kept in sessionStorage; going direct keeps the worker warm). A failed join never falls back to
+a direct read on its own. `/health`, receipts, provider health and the Attack Lab always go direct: the Attack
+Lab needs the engine's own provider routing so that its attacker is tried. Build-time switches:
+`VITE_ANON=off` (no worker, no toggle) and `VITE_ANON_PROVIDERS="label=https://url,…"` (default PublicNode).

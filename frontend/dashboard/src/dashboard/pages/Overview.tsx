@@ -11,6 +11,7 @@ import {
   useHealth,
   useReceipts,
 } from '../lib/engine'
+import { transportLabel } from '../lib/anon'
 import { formatNumber, median, timeAgo } from '../lib/format'
 import { ReadsChart } from '../components/ReadsChart'
 import { Card, CardTitle, EmptyState, ErrorCard, HeroPanel, PrimaryLink, SampleTag, Skeleton, Stagger, useNow } from '../components/ui'
@@ -156,6 +157,9 @@ export function OverviewPage() {
                 <div className="text-3xl font-medium tabular-nums tracking-hero">{storageValue}</div>
                 <div className="mt-1 text-sm text-vq-muted">
                   Verified storage value · block #{formatNumber(storageResult.receipt.block.number)}
+                </div>
+                <div className="mt-1 text-sm text-vq-muted" data-testid="storage-transport">
+                  Fetched via {transportLabel(storageResult.receipt.privacy)}
                 </div>
                 <Link
                   to={`/app/feed?receipt=${encodeURIComponent(storageResult.receipt.identity.requestId)}`}

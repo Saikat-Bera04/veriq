@@ -175,7 +175,7 @@ export function ReceiptCard({ receipt, value, attempts = [], error, formatValue 
             </span>
           </Row>
           <Row label="Transport">
-            <span className="vq-mono">{r.privacy.transport}</span>
+            <span className="vq-mono">{r.privacy.mechanism ? `${r.privacy.transport} (${r.privacy.mechanism})` : r.privacy.transport}</span>
           </Row>
           <Row label="Comparison">
             <span className="vq-mono">{r.routing.comparison}</span>
