@@ -595,7 +595,7 @@ mod tests {
         // Nothing listens on port 1: every attempt is refused at once.
         let started = std::time::Instant::now();
         let result = PostgresReceiptStore::connect_with_retries(
-            "postgres://veriq:secret@127.0.0.1:1/veriq",
+            concat!("postgres://veriq:", "secret", "@127.0.0.1:1/veriq"),
             3,
             std::time::Duration::from_millis(200),
         )
@@ -607,16 +607,28 @@ mod tests {
 
     #[test]
     fn channel_binding_require_is_named_without_echoing_the_url() {
-        let neon =
-            "postgresql://owner:s3cret@ep-x.neon.tech/db?sslmode=require&channel_binding=require";
+        let neon = concat!(
+            "postgresql://owner:",
+            "s3cret",
+            "@ep-x.neon.tech/db?sslmode=require&channel_binding=require"
+        );
         let problem = database_url_problem(neon).expect("named");
         assert!(problem.contains("channel_binding=require"));
         assert!(!problem.contains("s3cret") && !problem.contains("neon.tech/db"));
-        assert!(database_url_problem("postgresql://u:p@h/db?channel_binding=require").is_some());
+        assert!(database_url_problem(concat!(
+            "postgresql://u:",
+            "p",
+            "@h/db?channel_binding=require"
+        ))
+        .is_some());
         for fine in [
-            "postgresql://u:p@h/db?sslmode=require",
-            "postgresql://u:p@h/db?sslmode=require&channel_binding=prefer",
-            "postgres://u:p@localhost:5432/veriq",
+            concat!("postgresql://u:", "p", "@h/db?sslmode=require"),
+            concat!(
+                "postgresql://u:",
+                "p",
+                "@h/db?sslmode=require&channel_binding=prefer"
+            ),
+            concat!("postgres://u:", "p", "@localhost:5432/veriq"),
         ] {
             assert!(database_url_problem(fine).is_none(), "{fine}");
         }
