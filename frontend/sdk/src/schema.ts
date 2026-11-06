@@ -168,8 +168,8 @@ export const ReadResultSchema = z.object({
 /** `veriq_getRoot`: the finalized block the engine verifies against right now. */
 export const RootInfoSchema = z.object({
   number: z.number().int().nonnegative(),
-  hash: hex(),
-  stateRoot: hex(),
+  hash: Hex32Schema,
+  stateRoot: Hex32Schema,
   rootSource: z.string(),
   verified: z.boolean(),
 })
