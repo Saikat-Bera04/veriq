@@ -13,11 +13,29 @@ jobs:
   rust:
     name: Rust Workspace Checks & Tests
     runs-on: ubuntu-latest
+    # A dedicated, empty database for the two PostgreSQL tests (backend/README.md); they fail in CI
+    # without it. Throwaway container: no password (trust auth), so nothing secret in this file.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: veriq
+          POSTGRES_DB: veriq_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U veriq -d veriq_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://veriq@localhost:5432/veriq_test
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.85.0
+          toolchain: 1.94.1
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
