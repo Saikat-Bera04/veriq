@@ -38,6 +38,9 @@ importers:
       '@anon-rpc/browser-harness':
         specifier: 0.4.0
         version: 0.4.0
+      '@kirann_out/veriq-client':
+        specifier: workspace:*
+        version: link:../sdk
       '@nymproject/mix-fetch':
         specifier: 3.0.1
         version: 3.0.1
@@ -74,9 +77,6 @@ importers:
       tailwind-merge:
         specifier: ^2.6.1
         version: 2.6.1
-      veriq-client:
-        specifier: workspace:*
-        version: link:../sdk
       zod:
         specifier: ^3.23.8
         version: 3.25.76
